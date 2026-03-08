@@ -10,10 +10,3 @@ async def verify_api_key(x_api_key: str = Header(...)):
 
 async def get_account_manager(request: Request):
     return request.app.state.account_manager
-```
-
-**Ctrl+S** ile kaydedin.
-
-Şimdi `app/utils/logger.py` dosyasını oluşturalım. Terminale:
-```
-New-Item app\utils\logger.py
