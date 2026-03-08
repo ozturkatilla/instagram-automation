@@ -1,0 +1,73 @@
+version: '3.8'
+
+services:
+  api:
+    build: .
+    container_name: instagram_api
+    ports:
+      - "8000:8000"
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - SECRET_KEY=${SECRET_KEY}
+      - API_KEY=${API_KEY}
+      - DEBUG=${DEBUG}
+      - SESSION_DIR=${SESSION_DIR}
+      - DATA_DIR=${DATA_DIR}
+      - LOG_DIR=${LOG_DIR}
+      - DEFAULT_REQUEST_DELAY=${DEFAULT_REQUEST_DELAY}
+      - MAX_DAILY_ACTIONS=${MAX_DAILY_ACTIONS}
+    volumes:
+      - instagram_sessions:/app/storage/sessions
+      - instagram_logs:/app/storage/logs
+      - instagram_data:/app/storage/data
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - instagram_net
+
+  worker:
+    build: .
+    container_name: instagram_worker
+    command: rq worker --url redis://redis:6379 instagram_jobs
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - SECRET_KEY=${SECRET_KEY}
+      - API_KEY=${API_KEY}
+      - SESSION_DIR=${SESSION_DIR}
+      - DATA_DIR=${DATA_DIR}
+      - LOG_DIR=${LOG_DIR}
+    volumes:
+      - instagram_sessions:/app/storage/sessions
+      - instagram_logs:/app/storage/logs
+      - instagram_data:/app/storage/data
+    depends_on:
+      - redis
+    restart: unless-stopped
+    networks:
+      - instagram_net
+
+  redis:
+    image: redis:7-alpine
+    container_name: instagram_redis
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - instagram_net
+
+networks:
+  instagram_net:
+    driver: bridge
+
+volumes:
+  instagram_sessions:
+  instagram_logs:
+  instagram_data:
+  redis_data:
