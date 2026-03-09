@@ -1,10 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import Optional, List
 from app.dependencies import verify_api_key, get_account_manager
 from app.services.account_manager import AccountManager
-import tempfile
-import os
 
 router = APIRouter()
 
@@ -41,8 +39,33 @@ class StoryVideoRequest(BaseModel):
 
 class CarouselUploadRequest(BaseModel):
     username: str
-    paths: List[str]        # Fotoğraf veya video dosya yolları listesi
+    paths: List[str]
     caption: Optional[str] = ""
+
+class CommentsRequest(BaseModel):
+    username: str
+    media_id: str
+    amount: Optional[int] = 20
+
+class CommentRequest(BaseModel):
+    username: str
+    media_id: str
+    text: str
+
+class CommentDeleteRequest(BaseModel):
+    username: str
+    media_id: str
+    comment_pk: str
+
+class CommentLikeRequest(BaseModel):
+    username: str
+    comment_pk: str
+
+class CommentReplyRequest(BaseModel):
+    username: str
+    media_id: str
+    comment_pk: str
+    text: str
 
 
 @router.post("/likers")
@@ -180,8 +203,121 @@ async def upload_carousel(
     if not client:
         raise HTTPException(status_code=404, detail="Hesap aktif değil")
     try:
-        from instagrapi.types import StoryMedia
         media = client.album_upload(req.paths, caption=req.caption)
         return {"status": "ok", "media_id": str(media.pk), "media_type": "carousel"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/comments")
+async def get_comments(
+    req: CommentsRequest,
+    _: str = Depends(verify_api_key),
+    manager: AccountManager = Depends(get_account_manager)
+):
+    """Bir gönderinin yorumlarını çeker."""
+    client = manager.get_client(req.username)
+    if not client:
+        raise HTTPException(status_code=404, detail="Hesap aktif değil")
+    try:
+        comments = client.media_comments(req.media_id, amount=req.amount)
+        return {
+            "status": "ok",
+            "media_id": req.media_id,
+            "count": len(comments),
+            "comments": [
+                {
+                    "pk": str(c.pk),
+                    "text": c.text,
+                    "user_id": str(c.user.pk),
+                    "username": c.user.username,
+                    "created_at": str(c.created_at_utc) if c.created_at_utc else None,
+                    "like_count": c.like_count
+                }
+                for c in comments
+            ]
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/comment")
+async def post_comment(
+    req: CommentRequest,
+    _: str = Depends(verify_api_key),
+    manager: AccountManager = Depends(get_account_manager)
+):
+    """Bir gönderiye yorum yapar."""
+    client = manager.get_client(req.username)
+    if not client:
+        raise HTTPException(status_code=404, detail="Hesap aktif değil")
+    try:
+        comment = client.media_comment(req.media_id, req.text)
+        return {
+            "status": "ok",
+            "comment_pk": str(comment.pk),
+            "text": comment.text,
+            "media_id": req.media_id
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/comment/delete")
+async def delete_comment(
+    req: CommentDeleteRequest,
+    _: str = Depends(verify_api_key),
+    manager: AccountManager = Depends(get_account_manager)
+):
+    """Belirtilen yorumu siler."""
+    client = manager.get_client(req.username)
+    if not client:
+        raise HTTPException(status_code=404, detail="Hesap aktif değil")
+    try:
+        result = client.comment_delete(req.media_id, req.comment_pk)
+        return {"status": "ok", "deleted": result, "comment_pk": req.comment_pk}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/comment/like")
+async def like_comment(
+    req: CommentLikeRequest,
+    _: str = Depends(verify_api_key),
+    manager: AccountManager = Depends(get_account_manager)
+):
+    """Belirtilen yorumu beğenir."""
+    client = manager.get_client(req.username)
+    if not client:
+        raise HTTPException(status_code=404, detail="Hesap aktif değil")
+    try:
+        result = client.comment_like(req.comment_pk)
+        return {"status": "ok", "liked": result, "comment_pk": req.comment_pk}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/comment/reply")
+async def reply_comment(
+    req: CommentReplyRequest,
+    _: str = Depends(verify_api_key),
+    manager: AccountManager = Depends(get_account_manager)
+):
+    """Bir yoruma yanıt verir."""
+    client = manager.get_client(req.username)
+    if not client:
+        raise HTTPException(status_code=404, detail="Hesap aktif değil")
+    try:
+        comment = client.media_comment(
+            req.media_id,
+            req.text,
+            replied_to_comment_id=int(req.comment_pk)
+        )
+        return {
+            "status": "ok",
+            "comment_pk": str(comment.pk),
+            "text": comment.text,
+            "replied_to": req.comment_pk
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
