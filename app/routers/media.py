@@ -321,3 +321,92 @@ async def reply_comment(
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+class UserMediaScrapeRequest(BaseModel):
+    username: str              # Gönderen hesap (sistemizdeki aktif hesap)
+    target_username: str       # Scrape edilecek hesap
+    start_date: str            # Başlangıç tarihi: "DD.MM.YYYY"
+    end_date: str              # Bitiş tarihi: "DD.MM.YYYY"
+    amount: Optional[int] = 50 # Kaç gönderi taranacak (fazla vermek daha güvenli)
+
+
+@router.post("/user/scrape")
+async def scrape_user_media(
+    req: UserMediaScrapeRequest,
+    _: str = Depends(verify_api_key),
+    manager: AccountManager = Depends(get_account_manager)
+):
+    """
+    Belirtilen kullanıcının gönderilerini tarih aralığına göre filtreler.
+    Tüm medya tipleri desteklenir: photo, video, reels, carousel.
+    """
+    from datetime import datetime
+    import pytz
+
+    client = manager.get_client(req.username)
+    if not client:
+        raise HTTPException(status_code=404, detail="Hesap aktif değil")
+
+    try:
+        # Tarihleri parse et
+        try:
+            start = datetime.strptime(req.start_date, "%d.%m.%Y").replace(tzinfo=pytz.utc)
+            end = datetime.strptime(req.end_date, "%d.%m.%Y").replace(hour=23, minute=59, second=59, tzinfo=pytz.utc)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Tarih formatı hatalı. Doğru format: DD.MM.YYYY")
+
+        if start > end:
+            raise HTTPException(status_code=400, detail="Başlangıç tarihi bitiş tarihinden büyük olamaz")
+
+        # Kullanıcı ID'sini bul
+        user_id = client.user_id_from_username(req.target_username)
+
+        # Gönderileri çek
+        medias = client.user_medias(user_id, amount=req.amount)
+
+        # Medya tipi eşleştirme
+        media_type_map = {
+            1: "photo",
+            2: "video",
+            8: "carousel"
+        }
+
+        # Tarih aralığına göre filtrele
+        filtered = []
+        for m in medias:
+            taken_at = m.taken_at
+            if taken_at.tzinfo is None:
+                taken_at = taken_at.replace(tzinfo=pytz.utc)
+
+            if start <= taken_at <= end:
+                # Reels tespiti: video + is_video + product_type
+                media_type = media_type_map.get(m.media_type, "unknown")
+                if media_type == "video" and hasattr(m, "product_type") and m.product_type == "clips":
+                    media_type = "reels"
+
+                filtered.append({
+                    "media_id": str(m.pk),
+                    "media_type": media_type,
+                    "caption": m.caption_text if m.caption_text else "",
+                    "like_count": m.like_count,
+                    "comment_count": m.comment_count,
+                    "taken_at": taken_at.strftime("%d.%m.%Y %H:%M"),
+                    "url": f"https://www.instagram.com/p/{m.code}/"
+                })
+
+        # Tarihe göre sırala (yeniden eskiye)
+        filtered.sort(key=lambda x: x["taken_at"], reverse=True)
+
+        return {
+            "status": "ok",
+            "target_username": req.target_username,
+            "start_date": req.start_date,
+            "end_date": req.end_date,
+            "total_scanned": len(medias),
+            "total_found": len(filtered),
+            "media": filtered
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
