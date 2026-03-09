@@ -3,12 +3,26 @@ from pathlib import Path
 from typing import Dict, Optional
 from loguru import logger
 from instagrapi import Client
+from instagrapi.exceptions import ChallengeRequired, SelectContactPointRecoveryForm, RecaptchaChallengeForm
 
 from app.config import get_settings
 from app.services.session_manager import SessionManager
 from app.services.proxy_manager import ProxyManager
 
 settings = get_settings()
+
+def challenge_code_handler(username: str, choice) -> str:
+    """
+    Challenge geldiğinde ne yapılacağını belirler.
+    Bu fonksiyon API üzerinden dışarıdan kod almak için tasarlanmıştır.
+    Şimdilik challenge'ı loglayıp boş string döner — API endpoint'ten kod alınacak.
+    """
+    logger.warning(f"Challenge istendi: {username}, seçenek: {choice}")
+    return ""
+
+def change_password_handler(username: str) -> str:
+    logger.warning(f"Şifre değişikliği istendi: {username}")
+    return ""
 
 class AccountState:
     def __init__(self, username: str):
@@ -19,6 +33,7 @@ class AccountState:
         self.last_login: Optional[datetime] = None
         self.daily_actions: int = 0
         self.status: str = "idle"
+        self.challenge_required: bool = False
 
 class AccountManager:
     def __init__(self):
@@ -27,6 +42,14 @@ class AccountManager:
         self.proxy_manager = ProxyManager()
         self.data_dir = Path(settings.DATA_DIR)
         self.data_dir.mkdir(parents=True, exist_ok=True)
+
+    def _create_client(self, proxy: Optional[str] = None) -> Client:
+        cl = Client()
+        cl.challenge_code_handler = challenge_code_handler
+        cl.change_password_handler = change_password_handler
+        if proxy:
+            cl.set_proxy(proxy)
+        return cl
 
     async def load_all_sessions(self):
         session_dir = Path(settings.SESSION_DIR)
@@ -38,12 +61,9 @@ class AccountManager:
 
     async def _restore_account(self, username: str):
         state = AccountState(username)
-        state.client = Client()
-
         proxy = self.proxy_manager.get_proxy(username)
-        if proxy:
-            state.client.set_proxy(proxy)
-            state.proxy = proxy
+        state.client = self._create_client(proxy)
+        state.proxy = proxy
 
         if self.session_manager.load_session(state.client, username):
             if self.session_manager.verify_session(state.client):
@@ -58,10 +78,9 @@ class AccountManager:
 
     async def login_with_password(self, username: str, password: str, proxy: Optional[str] = None) -> bool:
         state = AccountState(username)
-        state.client = Client()
+        state.client = self._create_client(proxy)
 
         if proxy:
-            state.client.set_proxy(proxy)
             state.proxy = proxy
             self.proxy_manager.set_proxy(username, proxy)
 
@@ -85,6 +104,13 @@ class AccountManager:
             logger.info(f"Yeni login başarılı: {username}")
             return True
 
+        except ChallengeRequired:
+            state.status = "challenge_required"
+            state.challenge_required = True
+            self.accounts[username] = state
+            logger.warning(f"Challenge gerekli: {username}")
+            return False
+
         except Exception as e:
             state.status = "error"
             self.accounts[username] = state
@@ -93,10 +119,9 @@ class AccountManager:
 
     async def login_with_sessionid(self, username: str, session_id: str, proxy: Optional[str] = None) -> bool:
         state = AccountState(username)
-        state.client = Client()
+        state.client = self._create_client(proxy)
 
         if proxy:
-            state.client.set_proxy(proxy)
             state.proxy = proxy
             self.proxy_manager.set_proxy(username, proxy)
 
@@ -110,10 +135,35 @@ class AccountManager:
             logger.info(f"Session ID ile login başarılı: {username}")
             return True
 
+        except ChallengeRequired:
+            state.status = "challenge_required"
+            state.challenge_required = True
+            self.accounts[username] = state
+            logger.warning(f"Challenge gerekli: {username}")
+            return False
+
         except Exception as e:
             state.status = "error"
             self.accounts[username] = state
             logger.error(f"Session ID login başarısız {username}: {e}")
+            return False
+
+    async def submit_challenge_code(self, username: str, code: str) -> bool:
+        """Challenge kodunu API üzerinden gönderir."""
+        state = self.accounts.get(username)
+        if not state or not state.client:
+            return False
+        try:
+            state.client.challenge_code_handler = lambda u, c: code
+            state.client.challenge_resolve(state.client.last_json)
+            self.session_manager.save_session(state.client, username)
+            state.is_logged_in = True
+            state.status = "active"
+            state.challenge_required = False
+            logger.info(f"Challenge çözüldü: {username}")
+            return True
+        except Exception as e:
+            logger.error(f"Challenge çözümü başarısız {username}: {e}")
             return False
 
     def get_client(self, username: str) -> Optional[Client]:
@@ -133,6 +183,7 @@ class AccountManager:
             "proxy": state.proxy,
             "last_login": str(state.last_login) if state.last_login else None,
             "daily_actions": state.daily_actions,
+            "challenge_required": state.challenge_required,
         }
 
     def list_accounts(self) -> list:
