@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Dict, Optional
 from loguru import logger
 from instagrapi import Client
-from instagrapi.exceptions import ChallengeRequired, SelectContactPointRecoveryForm, RecaptchaChallengeForm
+from instagrapi.exceptions import ChallengeRequired
 
 from app.config import get_settings
 from app.services.session_manager import SessionManager
@@ -11,18 +11,16 @@ from app.services.proxy_manager import ProxyManager
 
 settings = get_settings()
 
+
 def challenge_code_handler(username: str, choice) -> str:
-    """
-    Challenge geldiğinde ne yapılacağını belirler.
-    Bu fonksiyon API üzerinden dışarıdan kod almak için tasarlanmıştır.
-    Şimdilik challenge'ı loglayıp boş string döner — API endpoint'ten kod alınacak.
-    """
     logger.warning(f"Challenge istendi: {username}, seçenek: {choice}")
     return ""
+
 
 def change_password_handler(username: str) -> str:
     logger.warning(f"Şifre değişikliği istendi: {username}")
     return ""
+
 
 class AccountState:
     def __init__(self, username: str):
@@ -34,6 +32,7 @@ class AccountState:
         self.daily_actions: int = 0
         self.status: str = "idle"
         self.challenge_required: bool = False
+
 
 class AccountManager:
     def __init__(self):
@@ -148,11 +147,13 @@ class AccountManager:
             logger.error(f"Session ID login başarısız {username}: {e}")
             return False
 
-    async def submit_challenge_code(self, username: str, code: str) -> bool:
+    async def submit_challenge_code(self, username: str, code: str) -> dict:
         """Challenge kodunu API üzerinden gönderir."""
         state = self.accounts.get(username)
         if not state or not state.client:
-            return False
+            return {"success": False, "error": "Hesap bulunamadı veya client yok"}
+        if not state.challenge_required:
+            return {"success": False, "error": "Bu hesapta aktif challenge yok"}
         try:
             state.client.challenge_code_handler = lambda u, c: code
             state.client.challenge_resolve(state.client.last_json)
@@ -161,10 +162,10 @@ class AccountManager:
             state.status = "active"
             state.challenge_required = False
             logger.info(f"Challenge çözüldü: {username}")
-            return True
+            return {"success": True}
         except Exception as e:
             logger.error(f"Challenge çözümü başarısız {username}: {e}")
-            return False
+            return {"success": False, "error": str(e)}
 
     def get_client(self, username: str) -> Optional[Client]:
         state = self.accounts.get(username)

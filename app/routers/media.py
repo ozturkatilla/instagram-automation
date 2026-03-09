@@ -410,3 +410,89 @@ async def scrape_user_media(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+class MediaInfoRequest(BaseModel):
+    username: str
+    media_id: str
+
+class MediaInfoByUrlRequest(BaseModel):
+    username: str
+    url: str
+
+
+@router.post("/info")
+async def get_media_info(
+    req: MediaInfoRequest,
+    _: str = Depends(verify_api_key),
+    manager: AccountManager = Depends(get_account_manager)
+):
+    """Media ID ile gönderinin tüm detaylarını döndürür."""
+    client = manager.get_client(req.username)
+    if not client:
+        raise HTTPException(status_code=404, detail="Hesap aktif değil")
+    try:
+        m = client.media_info(req.media_id)
+
+        media_type_map = {1: "photo", 2: "video", 8: "carousel"}
+        media_type = media_type_map.get(m.media_type, "unknown")
+        if media_type == "video" and hasattr(m, "product_type") and m.product_type == "clips":
+            media_type = "reels"
+
+        return {
+            "status": "ok",
+            "media_id": str(m.pk),
+            "media_type": media_type,
+            "caption": m.caption_text if m.caption_text else "",
+            "like_count": m.like_count,
+            "comment_count": m.comment_count,
+            "taken_at": m.taken_at.strftime("%d.%m.%Y %H:%M") if m.taken_at else None,
+            "url": f"https://www.instagram.com/p/{m.code}/",
+            "owner": {
+                "user_id": str(m.user.pk),
+                "username": m.user.username,
+                "full_name": m.user.full_name if m.user.full_name else ""
+            },
+            "thumbnail_url": str(m.thumbnail_url) if m.thumbnail_url else None,
+            "video_url": str(m.video_url) if hasattr(m, "video_url") and m.video_url else None
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/info_by_url")
+async def get_media_info_by_url(
+    req: MediaInfoByUrlRequest,
+    _: str = Depends(verify_api_key),
+    manager: AccountManager = Depends(get_account_manager)
+):
+    """Instagram linki ile gönderinin tüm detaylarını döndürür (link → bilgi tek adımda)."""
+    client = manager.get_client(req.username)
+    if not client:
+        raise HTTPException(status_code=404, detail="Hesap aktif değil")
+    try:
+        media_id = client.media_pk_from_url(req.url)
+        m = client.media_info(media_id)
+
+        media_type_map = {1: "photo", 2: "video", 8: "carousel"}
+        media_type = media_type_map.get(m.media_type, "unknown")
+        if media_type == "video" and hasattr(m, "product_type") and m.product_type == "clips":
+            media_type = "reels"
+
+        return {
+            "status": "ok",
+            "media_id": str(m.pk),
+            "media_type": media_type,
+            "caption": m.caption_text if m.caption_text else "",
+            "like_count": m.like_count,
+            "comment_count": m.comment_count,
+            "taken_at": m.taken_at.strftime("%d.%m.%Y %H:%M") if m.taken_at else None,
+            "url": f"https://www.instagram.com/p/{m.code}/",
+            "owner": {
+                "user_id": str(m.user.pk),
+                "username": m.user.username,
+                "full_name": m.user.full_name if m.user.full_name else ""
+            },
+            "thumbnail_url": str(m.thumbnail_url) if m.thumbnail_url else None,
+            "video_url": str(m.video_url) if hasattr(m, "video_url") and m.video_url else None
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
