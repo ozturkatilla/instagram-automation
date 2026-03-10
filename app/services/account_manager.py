@@ -13,12 +13,12 @@ settings = get_settings()
 
 
 def challenge_code_handler(username: str, choice) -> str:
-    logger.warning(f"Challenge istendi: {username}, seçenek: {choice}")
+    logger.warning(f"Challenge istendi: {username}, seceenek: {choice}")
     return ""
 
 
 def change_password_handler(username: str) -> str:
-    logger.warning(f"Şifre değişikliği istendi: {username}")
+    logger.warning(f"Sifre degisikligi istendi: {username}")
     return ""
 
 
@@ -58,7 +58,7 @@ class AccountManager:
         session_dir.mkdir(parents=True, exist_ok=True)
         for session_file in session_dir.glob("*.json"):
             username = session_file.stem
-            logger.info(f"Oturum yükleniyor: {username}")
+            logger.info(f"Oturum yukleniyor: {username}")
             await self._restore_account(username)
 
     async def _restore_account(self, username: str):
@@ -74,7 +74,7 @@ class AccountManager:
                 logger.info(f"Hesap aktif: {username}")
             else:
                 state.status = "session_expired"
-                logger.warning(f"Oturum süresi dolmuş: {username}")
+                logger.warning(f"Oturum suresi dolmus: {username}")
 
         self.accounts[username] = state
 
@@ -101,13 +101,12 @@ class AccountManager:
                         state.status = "active"
                         state.last_login = datetime.now()
                         self.accounts[username] = state
-                        logger.info(f"Mevcut oturum kullanıldı: {username}")
+                        logger.info(f"Mevcut oturum kullanildi: {username}")
                         return True
 
-            # TOTP seed varsa 2FA kodunu otomatik üret
             if totp_seed:
                 totp_code = state.client.totp_generate_code(totp_seed)
-                logger.info(f"TOTP kodu üretildi: {username}")
+                logger.info(f"TOTP kodu uretildi: {username}")
                 state.client.login(username, password, verification_code=totp_code)
             else:
                 state.client.login(username, password)
@@ -117,7 +116,7 @@ class AccountManager:
             state.status = "active"
             state.last_login = datetime.now()
             self.accounts[username] = state
-            logger.info(f"Yeni login başarılı: {username}")
+            logger.info(f"Yeni login basarili: {username}")
             return True
 
         except ChallengeRequired:
@@ -125,12 +124,20 @@ class AccountManager:
             state.challenge_required = True
             self.accounts[username] = state
             logger.warning(f"Challenge gerekli: {username}")
+            try:
+                logger.warning(f"Challenge last_json {username}: {state.client.last_json}")
+            except Exception:
+                pass
             return False
 
         except Exception as e:
             state.status = "error"
             self.accounts[username] = state
-            logger.error(f"Login başarısız {username}: {e}")
+            logger.error(f"Login basarisiz {username}: {e}")
+            try:
+                logger.error(f"Instagram son yanit {username}: {state.client.last_json}")
+            except Exception:
+                pass
             return False
 
     async def login_with_sessionid(
@@ -155,7 +162,7 @@ class AccountManager:
             state.status = "active"
             state.last_login = datetime.now()
             self.accounts[username] = state
-            logger.info(f"Session ID ile login başarılı: {username}")
+            logger.info(f"Session ID ile login basarili: {username}")
             return True
 
         except ChallengeRequired:
@@ -163,19 +170,26 @@ class AccountManager:
             state.challenge_required = True
             self.accounts[username] = state
             logger.warning(f"Challenge gerekli: {username}")
+            try:
+                logger.warning(f"Challenge last_json {username}: {state.client.last_json}")
+            except Exception:
+                pass
             return False
 
         except Exception as e:
             state.status = "error"
             self.accounts[username] = state
-            logger.error(f"Session ID login başarısız {username}: {e}")
+            logger.error(f"Session ID login basarisiz {username}: {e}")
+            try:
+                logger.error(f"Instagram son yanit {username}: {state.client.last_json}")
+            except Exception:
+                pass
             return False
 
     async def submit_challenge_code(self, username: str, code: str) -> dict:
-        """Challenge kodunu API üzerinden gönderir."""
         state = self.accounts.get(username)
         if not state or not state.client:
-            return {"success": False, "error": "Hesap bulunamadı veya client yok"}
+            return {"success": False, "error": "Hesap bulunamadi veya client yok"}
         if not state.challenge_required:
             return {"success": False, "error": "Bu hesapta aktif challenge yok"}
         try:
@@ -185,10 +199,10 @@ class AccountManager:
             state.is_logged_in = True
             state.status = "active"
             state.challenge_required = False
-            logger.info(f"Challenge çözüldü: {username}")
+            logger.info(f"Challenge cozuldu: {username}")
             return {"success": True}
         except Exception as e:
-            logger.error(f"Challenge çözümü başarısız {username}: {e}")
+            logger.error(f"Challenge cozumu basarisiz {username}: {e}")
             return {"success": False, "error": str(e)}
 
     def get_client(self, username: str) -> Optional[Client]:
@@ -200,7 +214,7 @@ class AccountManager:
     def get_status(self, username: str) -> dict:
         state = self.accounts.get(username)
         if not state:
-            return {"error": "Hesap bulunamadı"}
+            return {"error": "Hesap bulunamadi"}
         return {
             "username": state.username,
             "is_logged_in": state.is_logged_in,
