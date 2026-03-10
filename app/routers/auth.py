@@ -29,7 +29,7 @@ async def login(
     _: str = Depends(verify_api_key),
     manager: AccountManager = Depends(get_account_manager)
 ):
-    """Kullanıcı adı ve şifre ile Instagram'a giriş yapar. TOTP seed varsa 2FA otomatik çözülür."""
+    """Kullanıcı adi ve sifre ile Instagram'a giris yapar. TOTP seed varsa 2FA otomatik cozulur."""
     success = await manager.login_with_password(
         req.username, req.password, req.proxy, req.totp_seed
     )
@@ -38,9 +38,9 @@ async def login(
         if state and state.challenge_required:
             raise HTTPException(
                 status_code=400,
-                detail="challenge_required — /challenge/submit ile kodu gönderin"
+                detail="challenge_required - /challenge/submit ile kodu gonderin"
             )
-        raise HTTPException(status_code=400, detail="Login başarısız")
+        raise HTTPException(status_code=400, detail="Login basarisiz")
     return {"status": "ok", "username": req.username, "logged_in": True}
 
 
@@ -50,7 +50,7 @@ async def login_by_sessionid(
     _: str = Depends(verify_api_key),
     manager: AccountManager = Depends(get_account_manager)
 ):
-    """Mevcut bir Instagram session_id ile giriş yapar."""
+    """Mevcut bir Instagram session_id ile giris yapar."""
     success = await manager.login_with_sessionid(
         req.username, req.session_id, req.proxy, req.totp_seed
     )
@@ -59,9 +59,9 @@ async def login_by_sessionid(
         if state and state.challenge_required:
             raise HTTPException(
                 status_code=400,
-                detail="challenge_required — /challenge/submit ile kodu gönderin"
+                detail="challenge_required - /challenge/submit ile kodu gonderin"
             )
-        raise HTTPException(status_code=400, detail="Session ID login başarısız")
+        raise HTTPException(status_code=400, detail="Session ID login basarisiz")
     return {"status": "ok", "username": req.username, "logged_in": True}
 
 
@@ -71,8 +71,8 @@ async def challenge_submit(
     _: str = Depends(verify_api_key),
     manager: AccountManager = Depends(get_account_manager)
 ):
-    """Instagram challenge doğrulama kodunu gönderir."""
+    """Instagram challenge dogrulama kodunu gonderir."""
     result = await manager.submit_challenge_code(req.username, req.code)
     if not result.get("success"):
-        raise HTTPException(status_code=400, detail=result.get("error", "Challenge çözümü başarısız"))
+        raise HTTPException(status_code=400, detail=result.get("error", "Challenge cozumu basarisiz"))
     return {"status": "ok", "username": req.username, "logged_in": True}
