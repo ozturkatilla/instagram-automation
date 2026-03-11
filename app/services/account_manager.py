@@ -109,11 +109,18 @@ class AccountManager:
             if totp_seed:
                 totp_code = state.client.totp_generate_code(totp_seed)
                 logger.info(f"TOTP kodu uretildi: {username}")
-                state.client.login(username, password, verification_code=totp_code)
+                try:
+                    state.client.login(username, password, verification_code=totp_code)
+                except Exception:
+                    pass
             else:
-                state.client.login(username, password)
+                try:
+                    state.client.login(username, password)
+                except Exception:
+                    pass
 
             self.session_manager.save_session(state.client, username)
+            logger.info(f"Oturum kaydedildi (exception oncesi): {username}")
             state.is_logged_in = True
             state.status = "active"
             state.last_login = datetime.now()
