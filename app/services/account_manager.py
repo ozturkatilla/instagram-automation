@@ -45,6 +45,8 @@ class AccountManager:
 
     def _create_client(self, proxy: Optional[str] = None, totp_seed: Optional[str] = None) -> Client:
         cl = Client()
+        cl.set_settings({})
+        cl.set_user_agent()
         cl.challenge_code_handler = challenge_code_handler
         cl.change_password_handler = change_password_handler
         if proxy:
