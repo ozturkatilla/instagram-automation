@@ -4,12 +4,76 @@ from typing import Dict, Optional
 from loguru import logger
 from instagrapi import Client
 from instagrapi.exceptions import ChallengeRequired
+import random
 
 from app.config import get_settings
 from app.services.session_manager import SessionManager
 from app.services.proxy_manager import ProxyManager
 
 settings = get_settings()
+
+DEVICE_PROFILES = [
+    {
+        "app_version": "269.0.0.18.75",
+        "android_version": 26,
+        "android_release": "8.0.0",
+        "dpi": "480dpi",
+        "resolution": "1080x1920",
+        "manufacturer": "Samsung",
+        "device": "SM-G955F",
+        "model": "hero2lte",
+        "cpu": "samsungexynos8895",
+        "version_code": "314665256",
+    },
+    {
+        "app_version": "269.0.0.18.75",
+        "android_version": 28,
+        "android_release": "9.0.0",
+        "dpi": "420dpi",
+        "resolution": "1080x2160",
+        "manufacturer": "Xiaomi",
+        "device": "Mi 9",
+        "model": "cepheus",
+        "cpu": "qcom",
+        "version_code": "314665256",
+    },
+    {
+        "app_version": "269.0.0.18.75",
+        "android_version": 29,
+        "android_release": "10.0.0",
+        "dpi": "440dpi",
+        "resolution": "1080x2340",
+        "manufacturer": "OnePlus",
+        "device": "OnePlus 7 Pro",
+        "model": "GM1913",
+        "cpu": "qcom",
+        "version_code": "314665256",
+    },
+    {
+        "app_version": "269.0.0.18.75",
+        "android_version": 30,
+        "android_release": "11.0.0",
+        "dpi": "560dpi",
+        "resolution": "1440x3200",
+        "manufacturer": "Samsung",
+        "device": "SM-G991B",
+        "model": "o1s",
+        "cpu": "samsungexynos2100",
+        "version_code": "314665256",
+    },
+    {
+        "app_version": "269.0.0.18.75",
+        "android_version": 31,
+        "android_release": "12.0.0",
+        "dpi": "400dpi",
+        "resolution": "1080x2400",
+        "manufacturer": "Google",
+        "device": "Pixel 6",
+        "model": "oriole",
+        "cpu": "google_tensor",
+        "version_code": "314665256",
+    },
+]
 
 
 def challenge_code_handler(username: str, choice) -> str:
@@ -45,14 +109,35 @@ class AccountManager:
 
     def _create_client(self, proxy: Optional[str] = None, totp_seed: Optional[str] = None) -> Client:
         cl = Client()
-        cl.set_settings({})
-        cl.set_user_agent()
+        device = random.choice(DEVICE_PROFILES)
+        cl.set_settings({
+            "device_settings": {
+                "app_version": device["app_version"],
+                "android_version": device["android_version"],
+                "android_release": device["android_release"],
+                "dpi": device["dpi"],
+                "resolution": device["resolution"],
+                "manufacturer": device["manufacturer"],
+                "device": device["device"],
+                "model": device["model"],
+                "cpu": device["cpu"],
+                "version_code": device["version_code"],
+            },
+            "user_agent": (
+                f"Instagram {device['app_version']} "
+                f"Android ({device['android_version']}/{device['android_release']}; "
+                f"{device['dpi']}; {device['resolution']}; "
+                f"{device['manufacturer']}; {device['device']}; "
+                f"{device['model']}; {device['cpu']}; tr_TR; {device['version_code']})"
+            )
+        })
         cl.challenge_code_handler = challenge_code_handler
         cl.change_password_handler = change_password_handler
         if proxy:
             cl.set_proxy(proxy)
         if totp_seed:
             cl.totp_seed = totp_seed
+        logger.info(f"Cihaz profili secildi: {device['manufacturer']} {device['device']}")
         return cl
 
     async def load_all_sessions(self):
@@ -237,3 +322,23 @@ class AccountManager:
 
     def list_accounts(self) -> list:
         return [self.get_status(u) for u in self.accounts]
+
+    async def rename_account(self, old_username: str, new_username: str) -> dict:
+        """Username degisince session dosyasini yeni username ile yeniden kaydeder."""
+        state = self.accounts.get(old_username)
+        if not state:
+            return {"success": False, "error": "Eski hesap bulunamadi"}
+        try:
+            old_path = self.session_manager.session_path(old_username)
+            new_path = self.session_manager.session_path(new_username)
+            if old_path.exists():
+                old_path.rename(new_path)
+            state.username = new_username
+            self.accounts[new_username] = state
+            del self.accounts[old_username]
+            self.session_manager.save_session(state.client, new_username)
+            logger.info(f"Hesap yeniden adlandirildi: {old_username} -> {new_username}")
+            return {"success": True}
+        except Exception as e:
+            logger.error(f"Rename basarisiz {old_username}: {e}")
+            return {"success": False, "error": str(e)}

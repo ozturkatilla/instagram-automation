@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import Optional, List
+import random
 
 from app.dependencies import verify_api_key, get_account_manager
 from app.services.account_manager import AccountManager
@@ -19,6 +20,10 @@ class PolicyRequest(BaseModel):
     username: str
     request_delay: Optional[float] = None
     max_daily_actions: Optional[int] = None
+
+class RenameRequest(BaseModel):
+    old_username: str
+    new_username: str
 
 @router.get("/status")
 async def account_status(
@@ -67,3 +72,36 @@ async def set_policy(
     _: str = Depends(verify_api_key),
 ):
     return {"status": "ok", "policy_updated": True}
+
+@router.post("/rename")
+async def rename_account(
+    req: RenameRequest,
+    _: str = Depends(verify_api_key),
+    manager: AccountManager = Depends(get_account_manager)
+):
+    """Username degisince session dosyasini yeni username ile yeniden kaydeder."""
+    result = await manager.rename_account(req.old_username, req.new_username)
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("error"))
+    return {"status": "ok", "old_username": req.old_username, "new_username": req.new_username}
+
+@router.get("/devices")
+async def get_devices(
+    username: str,
+    _: str = Depends(verify_api_key),
+    manager: AccountManager = Depends(get_account_manager)
+):
+    """Hesabin aktif cihaz bilgilerini dondurur."""
+    state = manager.accounts.get(username)
+    if not state or not state.client:
+        raise HTTPException(status_code=404, detail="Hesap bulunamadi veya aktif degil")
+    try:
+        settings = state.client.get_settings()
+        device_info = {
+            "device": settings.get("device_settings", {}),
+            "user_agent": settings.get("user_agent", ""),
+            "app_version": settings.get("app_version", ""),
+        }
+        return {"status": "ok", "username": username, "device": device_info}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
