@@ -5,6 +5,7 @@ RUN apt-get update && apt-get install -y \
     libssl-dev \
     libffi-dev \
     curl \
+    ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
