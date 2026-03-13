@@ -129,7 +129,11 @@ class AccountManager:
                 f"{device['dpi']}; {device['resolution']}; "
                 f"{device['manufacturer']}; {device['device']}; "
                 f"{device['model']}; {device['cpu']}; tr_TR; {device['version_code']})"
-            )
+            ),
+            "country": "TR",
+            "country_code": 90,
+            "locale": "tr_TR",
+            "timezone_offset": 10800
         })
         cl.challenge_code_handler = challenge_code_handler
         cl.change_password_handler = change_password_handler
@@ -324,7 +328,6 @@ class AccountManager:
         return [self.get_status(u) for u in self.accounts]
 
     async def rename_account(self, old_username: str, new_username: str) -> dict:
-        """Username degisince session dosyasini yeni username ile yeniden kaydeder."""
         state = self.accounts.get(old_username)
         if not state:
             return {"success": False, "error": "Eski hesap bulunamadi"}
