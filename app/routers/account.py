@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import Optional, List
-import random
+from instagrapi.exceptions import ChallengeRequired, LoginRequired
 
 from app.dependencies import verify_api_key, get_account_manager
 from app.services.account_manager import AccountManager
@@ -39,6 +39,30 @@ async def list_accounts(
     manager: AccountManager = Depends(get_account_manager)
 ):
     return {"accounts": manager.list_accounts()}
+
+@router.get("/check")
+async def check_account(
+    username: str,
+    _: str = Depends(verify_api_key),
+    manager: AccountManager = Depends(get_account_manager)
+):
+    """Hesabin gercekten aktif olup olmadigini, checkpoint'te olup olmadigini kontrol eder."""
+    state = manager.accounts.get(username)
+    if not state or not state.client:
+        raise HTTPException(status_code=404, detail="Hesap bulunamadi veya aktif degil")
+    try:
+        state.client.get_timeline_feed()
+        return {"status": "ok", "username": username, "active": True, "checkpoint": False}
+    except ChallengeRequired:
+        state.status = "checkpoint"
+        state.is_logged_in = False
+        return {"status": "checkpoint", "username": username, "active": False, "checkpoint": True}
+    except LoginRequired:
+        state.status = "session_expired"
+        state.is_logged_in = False
+        return {"status": "session_expired", "username": username, "active": False, "checkpoint": False}
+    except Exception as e:
+        return {"status": "error", "username": username, "active": False, "error": str(e)}
 
 @router.post("/set_proxy")
 async def set_proxy(
@@ -79,7 +103,6 @@ async def rename_account(
     _: str = Depends(verify_api_key),
     manager: AccountManager = Depends(get_account_manager)
 ):
-    """Username degisince session dosyasini yeni username ile yeniden kaydeder."""
     result = await manager.rename_account(req.old_username, req.new_username)
     if not result.get("success"):
         raise HTTPException(status_code=400, detail=result.get("error"))
@@ -91,7 +114,6 @@ async def get_devices(
     _: str = Depends(verify_api_key),
     manager: AccountManager = Depends(get_account_manager)
 ):
-    """Hesabin aktif cihaz bilgilerini dondurur."""
     state = manager.accounts.get(username)
     if not state or not state.client:
         raise HTTPException(status_code=404, detail="Hesap bulunamadi veya aktif degil")
