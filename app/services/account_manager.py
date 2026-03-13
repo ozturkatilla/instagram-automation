@@ -198,9 +198,15 @@ class AccountManager:
             if totp_seed:
                 totp_code = state.client.totp_generate_code(totp_seed)
                 logger.info(f"TOTP kodu uretildi: {username}")
-                state.client.login(username, password, verification_code=totp_code)
+                try:
+                    state.client.login(username, password, verification_code=totp_code)
+                except Exception as e:
+                    logger.warning(f"Login exception (devam ediliyor): {e}")
             else:
-                state.client.login(username, password)
+                try:
+                    state.client.login(username, password)
+                except Exception as e:
+                    logger.warning(f"Login exception (devam ediliyor): {e}")
 
             if not state.client.user_id:
                 raise Exception("Login basarisiz - user_id bos")
