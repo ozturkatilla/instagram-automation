@@ -43,7 +43,8 @@ async def send_direct(
     if not client:
         raise HTTPException(status_code=404, detail="Hesap aktif değil")
     try:
-        thread = client.direct_send(req.message, req.user_ids)
+        user_ids_int = [int(uid) for uid in req.user_ids]
+        thread = client.direct_send(req.message, user_ids_int)
         return {"status": "ok", "thread_id": str(thread.id)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -61,7 +62,7 @@ async def send_direct_by_username(
         raise HTTPException(status_code=404, detail="Hesap aktif değil")
     try:
         user_id = client.user_id_from_username(req.target_username)
-        thread = client.direct_send(req.message, [str(user_id)])
+        thread = client.direct_send(req.message, [int(user_id)])
         return {
             "status": "ok",
             "target_username": req.target_username,
@@ -78,12 +79,13 @@ async def send_direct_photo(
     _: str = Depends(verify_api_key),
     manager: AccountManager = Depends(get_account_manager)
 ):
-    """Kullanıcı ID listesine DM ile fotoğraf gönderir."""
+    """Kullanıcı ID listesine DM ile fotograf gönderir."""
     client = manager.get_client(req.username)
     if not client:
         raise HTTPException(status_code=404, detail="Hesap aktif değil")
     try:
-        thread = client.direct_send_photo(req.image_path, req.user_ids)
+        user_ids_int = [int(uid) for uid in req.user_ids]
+        thread = client.direct_send_photo(req.image_path, user_ids_int)
         return {"status": "ok", "thread_id": str(thread.id), "media_type": "photo"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -100,7 +102,8 @@ async def send_direct_video(
     if not client:
         raise HTTPException(status_code=404, detail="Hesap aktif değil")
     try:
-        thread = client.direct_send_video(req.video_path, req.user_ids)
+        user_ids_int = [int(uid) for uid in req.user_ids]
+        thread = client.direct_send_video(req.video_path, user_ids_int)
         return {"status": "ok", "thread_id": str(thread.id), "media_type": "video"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -112,12 +115,12 @@ async def reply_to_thread(
     _: str = Depends(verify_api_key),
     manager: AccountManager = Depends(get_account_manager)
 ):
-    """Mevcut bir DM thread'ine yanıt gönderir."""
+    """Mevcut bir DM thread'ine yanit gönderir."""
     client = manager.get_client(req.username)
     if not client:
         raise HTTPException(status_code=404, detail="Hesap aktif değil")
     try:
-        thread = client.direct_send(req.message, thread_ids=[req.thread_id])
+        thread = client.direct_send(req.message, thread_ids=[int(req.thread_id)])
         return {"status": "ok", "thread_id": str(thread.id)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -130,7 +133,7 @@ async def get_threads(
     _: str = Depends(verify_api_key),
     manager: AccountManager = Depends(get_account_manager)
 ):
-    """Hesabın DM thread listesini döndürür."""
+    """Hesabin DM thread listesini döndürür."""
     client = manager.get_client(username)
     if not client:
         raise HTTPException(status_code=404, detail="Hesap aktif değil")
@@ -160,12 +163,12 @@ async def get_thread_messages(
     _: str = Depends(verify_api_key),
     manager: AccountManager = Depends(get_account_manager)
 ):
-    """Belirli bir thread'deki mesajları döndürür."""
+    """Belirli bir thread'deki mesajlari döndürür."""
     client = manager.get_client(username)
     if not client:
         raise HTTPException(status_code=404, detail="Hesap aktif değil")
     try:
-        thread = client.direct_thread(thread_id, amount=amount)
+        thread = client.direct_thread(int(thread_id), amount=amount)
         return {
             "status": "ok",
             "thread_id": thread_id,
