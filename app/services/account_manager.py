@@ -5,6 +5,8 @@ from loguru import logger
 from instagrapi import Client
 from instagrapi.exceptions import ChallengeRequired
 import random
+import time
+import json
 
 from app.config import get_settings
 from app.services.session_manager import SessionManager
@@ -107,9 +109,10 @@ class AccountManager:
         self.data_dir = Path(settings.DATA_DIR)
         self.data_dir.mkdir(parents=True, exist_ok=True)
 
-    def _create_client(self, proxy: Optional[str] = None, totp_seed: Optional[str] = None) -> Client:
+    def _create_client(self, proxy: Optional[str] = None, totp_seed: Optional[str] = None, device: Optional[dict] = None) -> Client:
         cl = Client()
-        device = random.choice(DEVICE_PROFILES)
+        if device is None:
+            device = random.choice(DEVICE_PROFILES)
         cl.set_settings({
             "device_settings": {
                 "app_version": device["app_version"],
@@ -144,6 +147,21 @@ class AccountManager:
         logger.info(f"Cihaz profili secildi: {device['manufacturer']} {device['device']}")
         return cl
 
+    def _read_device_from_session(self, username: str) -> Optional[dict]:
+        """Session dosyasindan kaydedilmis cihaz bilgisini okur."""
+        path = self.session_manager.session_path(username)
+        if not path.exists():
+            return None
+        try:
+            with open(path, "r") as f:
+                data = json.load(f)
+            ds = data.get("device_settings", {})
+            if ds.get("app_version"):
+                return ds
+        except Exception as e:
+            logger.warning(f"Session cihaz bilgisi okunamadi {username}: {e}")
+        return None
+
     async def load_all_sessions(self):
         session_dir = Path(settings.SESSION_DIR)
         session_dir.mkdir(parents=True, exist_ok=True)
@@ -155,7 +173,10 @@ class AccountManager:
     async def _restore_account(self, username: str):
         state = AccountState(username)
         proxy = self.proxy_manager.get_proxy(username)
-        state.client = self._create_client(proxy)
+
+        # Session'daki cihaz bilgisini oku - tutarlilik icin
+        device = self._read_device_from_session(username)
+        state.client = self._create_client(proxy, device=device)
         state.proxy = proxy
 
         if self.session_manager.load_session(state.client, username):
@@ -165,7 +186,7 @@ class AccountManager:
                 logger.info(f"Hesap aktif: {username}")
             else:
                 state.status = "session_expired"
-                logger.warning(f"Oturum suresi dolmus: {username}")
+                logger.warning(f"Oturum suresi dolmus veya checkpoint: {username}")
 
         self.accounts[username] = state
 
@@ -186,6 +207,8 @@ class AccountManager:
 
         try:
             if self.session_manager.session_exists(username):
+                device = self._read_device_from_session(username)
+                state.client = self._create_client(proxy, totp_seed, device=device)
                 if self.session_manager.load_session(state.client, username):
                     if self.session_manager.verify_session(state.client):
                         state.is_logged_in = True
@@ -210,6 +233,9 @@ class AccountManager:
 
             if not state.client.user_id:
                 raise Exception("Login basarisiz - user_id bos")
+
+            # Login sonrasi bekleme - Instagram rate limit icin
+            time.sleep(3)
 
             self.session_manager.save_session(state.client, username)
             state.is_logged_in = True
@@ -257,6 +283,7 @@ class AccountManager:
 
         try:
             state.client.login_by_sessionid(session_id)
+            time.sleep(3)
             self.session_manager.save_session(state.client, username)
             state.is_logged_in = True
             state.status = "active"

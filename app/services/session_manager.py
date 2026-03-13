@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 from loguru import logger
 from instagrapi import Client
+from instagrapi.exceptions import ChallengeRequired, LoginRequired
 from app.config import get_settings
 
 settings = get_settings()
@@ -50,8 +51,16 @@ class SessionManager:
 
     def verify_session(self, client: Client) -> bool:
         try:
-            if client.user_id:
-                return True
+            if not client.user_id:
+                return False
+            # Gercek API cagrisi ile checkpoint ve gecerlilik kontrolu
+            client.get_timeline_feed()
+            return True
+        except ChallengeRequired:
+            logger.warning("Oturum checkpoint'te - challenge gerekli")
+            return False
+        except LoginRequired:
+            logger.warning("Oturum suresi dolmus - yeniden login gerekli")
             return False
         except Exception as e:
             logger.warning(f"Oturum dogrulama basarisiz: {e}")
