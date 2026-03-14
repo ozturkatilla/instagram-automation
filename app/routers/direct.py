@@ -1,6 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional
+import random
+import time
 from app.dependencies import verify_api_key, get_account_manager
 from app.services.account_manager import AccountManager
 
@@ -12,8 +14,8 @@ class DirectMessageRequest(BaseModel):
     message: str
 
 class DirectMessageByUsernameRequest(BaseModel):
-    username: str          # Gönderen hesap
-    target_username: str   # Alıcının Instagram kullanıcı adı
+    username: str
+    target_username: str
     message: str
 
 class DirectPhotoRequest(BaseModel):
@@ -32,6 +34,13 @@ class DirectThreadRequest(BaseModel):
     message: str
 
 
+def _human_typing_delay(message: str):
+    """Mesaj uzunluguna gore insansi yazma gecikmesi."""
+    typing_time = len(message) * random.uniform(0.05, 0.1)
+    total_delay = random.uniform(2, 5) + min(typing_time, 8)
+    time.sleep(total_delay)
+
+
 @router.post("/send")
 async def send_direct(
     req: DirectMessageRequest,
@@ -44,6 +53,7 @@ async def send_direct(
         raise HTTPException(status_code=404, detail="Hesap aktif değil")
     try:
         user_ids_int = [int(uid) for uid in req.user_ids]
+        _human_typing_delay(req.message)
         thread = client.direct_send(req.message, user_ids_int)
         return {"status": "ok", "thread_id": str(thread.id)}
     except Exception as e:
@@ -62,6 +72,7 @@ async def send_direct_by_username(
         raise HTTPException(status_code=404, detail="Hesap aktif değil")
     try:
         user_id = client.user_id_from_username(req.target_username)
+        _human_typing_delay(req.message)
         thread = client.direct_send(req.message, [int(user_id)])
         return {
             "status": "ok",
@@ -85,6 +96,7 @@ async def send_direct_photo(
         raise HTTPException(status_code=404, detail="Hesap aktif değil")
     try:
         user_ids_int = [int(uid) for uid in req.user_ids]
+        time.sleep(random.uniform(2, 5))
         thread = client.direct_send_photo(req.image_path, user_ids_int)
         return {"status": "ok", "thread_id": str(thread.id), "media_type": "photo"}
     except Exception as e:
@@ -103,6 +115,7 @@ async def send_direct_video(
         raise HTTPException(status_code=404, detail="Hesap aktif değil")
     try:
         user_ids_int = [int(uid) for uid in req.user_ids]
+        time.sleep(random.uniform(2, 5))
         thread = client.direct_send_video(req.video_path, user_ids_int)
         return {"status": "ok", "thread_id": str(thread.id), "media_type": "video"}
     except Exception as e:
@@ -120,6 +133,7 @@ async def reply_to_thread(
     if not client:
         raise HTTPException(status_code=404, detail="Hesap aktif değil")
     try:
+        _human_typing_delay(req.message)
         thread = client.direct_send(req.message, thread_ids=[int(req.thread_id)])
         return {"status": "ok", "thread_id": str(thread.id)}
     except Exception as e:

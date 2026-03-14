@@ -1,6 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import Optional, List
+import random
+import time
 from app.dependencies import verify_api_key, get_account_manager
 from app.services.account_manager import AccountManager
 
@@ -67,6 +69,32 @@ class CommentReplyRequest(BaseModel):
     comment_pk: str
     text: str
 
+class UserMediaScrapeRequest(BaseModel):
+    username: str
+    target_username: str
+    start_date: str
+    end_date: str
+    amount: Optional[int] = 50
+
+class MediaInfoRequest(BaseModel):
+    username: str
+    media_id: str
+
+class MediaInfoByUrlRequest(BaseModel):
+    username: str
+    url: str
+
+
+def _action_delay():
+    """Aksiyon oncesi insansi bekleme."""
+    time.sleep(random.uniform(2, 5))
+
+
+def _typing_delay(text: str):
+    """Metin uzunluguna gore yazma gecikmesi."""
+    typing_time = len(text) * random.uniform(0.05, 0.1)
+    time.sleep(random.uniform(2, 5) + min(typing_time, 8))
+
 
 @router.post("/likers")
 async def get_media_likers(
@@ -74,7 +102,6 @@ async def get_media_likers(
     _: str = Depends(verify_api_key),
     manager: AccountManager = Depends(get_account_manager)
 ):
-    """Belirtilen medyanın beğenenlerini döndürür."""
     client = manager.get_client(req.username)
     if not client:
         raise HTTPException(status_code=404, detail="Hesap aktif değil")
@@ -96,7 +123,6 @@ async def pk_from_url(
     _: str = Depends(verify_api_key),
     manager: AccountManager = Depends(get_account_manager)
 ):
-    """Instagram gönderi linkinden media ID (pk) döndürür."""
     client = manager.get_client(req.username)
     if not client:
         raise HTTPException(status_code=404, detail="Hesap aktif değil")
@@ -113,11 +139,11 @@ async def upload_photo(
     _: str = Depends(verify_api_key),
     manager: AccountManager = Depends(get_account_manager)
 ):
-    """Sunucudaki bir fotoğrafı Instagram'a yükler."""
     client = manager.get_client(req.username)
     if not client:
         raise HTTPException(status_code=404, detail="Hesap aktif değil")
     try:
+        _action_delay()
         media = client.photo_upload(req.image_path, caption=req.caption)
         return {"status": "ok", "media_id": str(media.pk), "media_type": "photo"}
     except Exception as e:
@@ -130,11 +156,11 @@ async def upload_video(
     _: str = Depends(verify_api_key),
     manager: AccountManager = Depends(get_account_manager)
 ):
-    """Sunucudaki bir videoyu Instagram'a yükler."""
     client = manager.get_client(req.username)
     if not client:
         raise HTTPException(status_code=404, detail="Hesap aktif değil")
     try:
+        _action_delay()
         media = client.video_upload(req.video_path, caption=req.caption)
         return {"status": "ok", "media_id": str(media.pk), "media_type": "video"}
     except Exception as e:
@@ -147,11 +173,11 @@ async def upload_reels(
     _: str = Depends(verify_api_key),
     manager: AccountManager = Depends(get_account_manager)
 ):
-    """Sunucudaki bir videoyu Reels olarak yükler."""
     client = manager.get_client(req.username)
     if not client:
         raise HTTPException(status_code=404, detail="Hesap aktif değil")
     try:
+        _action_delay()
         media = client.clip_upload(req.video_path, caption=req.caption)
         return {"status": "ok", "media_id": str(media.pk), "media_type": "reels"}
     except Exception as e:
@@ -164,11 +190,11 @@ async def upload_story_photo(
     _: str = Depends(verify_api_key),
     manager: AccountManager = Depends(get_account_manager)
 ):
-    """Sunucudaki bir fotoğrafı story olarak yükler."""
     client = manager.get_client(req.username)
     if not client:
         raise HTTPException(status_code=404, detail="Hesap aktif değil")
     try:
+        _action_delay()
         media = client.photo_upload_to_story(req.image_path)
         return {"status": "ok", "media_id": str(media.pk), "media_type": "story_photo"}
     except Exception as e:
@@ -181,11 +207,11 @@ async def upload_story_video(
     _: str = Depends(verify_api_key),
     manager: AccountManager = Depends(get_account_manager)
 ):
-    """Sunucudaki bir videoyu story olarak yükler."""
     client = manager.get_client(req.username)
     if not client:
         raise HTTPException(status_code=404, detail="Hesap aktif değil")
     try:
+        _action_delay()
         media = client.video_upload_to_story(req.video_path)
         return {"status": "ok", "media_id": str(media.pk), "media_type": "story_video"}
     except Exception as e:
@@ -198,11 +224,11 @@ async def upload_carousel(
     _: str = Depends(verify_api_key),
     manager: AccountManager = Depends(get_account_manager)
 ):
-    """Birden fazla fotoğraf/videoyu carousel (albüm) olarak yükler."""
     client = manager.get_client(req.username)
     if not client:
         raise HTTPException(status_code=404, detail="Hesap aktif değil")
     try:
+        _action_delay()
         media = client.album_upload(req.paths, caption=req.caption)
         return {"status": "ok", "media_id": str(media.pk), "media_type": "carousel"}
     except Exception as e:
@@ -215,7 +241,6 @@ async def get_comments(
     _: str = Depends(verify_api_key),
     manager: AccountManager = Depends(get_account_manager)
 ):
-    """Bir gönderinin yorumlarını çeker."""
     client = manager.get_client(req.username)
     if not client:
         raise HTTPException(status_code=404, detail="Hesap aktif değil")
@@ -247,11 +272,11 @@ async def post_comment(
     _: str = Depends(verify_api_key),
     manager: AccountManager = Depends(get_account_manager)
 ):
-    """Bir gönderiye yorum yapar."""
     client = manager.get_client(req.username)
     if not client:
         raise HTTPException(status_code=404, detail="Hesap aktif değil")
     try:
+        _typing_delay(req.text)
         comment = client.media_comment(req.media_id, req.text)
         return {
             "status": "ok",
@@ -269,11 +294,11 @@ async def delete_comment(
     _: str = Depends(verify_api_key),
     manager: AccountManager = Depends(get_account_manager)
 ):
-    """Belirtilen yorumu siler."""
     client = manager.get_client(req.username)
     if not client:
         raise HTTPException(status_code=404, detail="Hesap aktif değil")
     try:
+        _action_delay()
         result = client.comment_delete(req.media_id, req.comment_pk)
         return {"status": "ok", "deleted": result, "comment_pk": req.comment_pk}
     except Exception as e:
@@ -286,11 +311,11 @@ async def like_comment(
     _: str = Depends(verify_api_key),
     manager: AccountManager = Depends(get_account_manager)
 ):
-    """Belirtilen yorumu beğenir."""
     client = manager.get_client(req.username)
     if not client:
         raise HTTPException(status_code=404, detail="Hesap aktif değil")
     try:
+        _action_delay()
         result = client.comment_like(req.comment_pk)
         return {"status": "ok", "liked": result, "comment_pk": req.comment_pk}
     except Exception as e:
@@ -303,11 +328,11 @@ async def reply_comment(
     _: str = Depends(verify_api_key),
     manager: AccountManager = Depends(get_account_manager)
 ):
-    """Bir yoruma yanıt verir."""
     client = manager.get_client(req.username)
     if not client:
         raise HTTPException(status_code=404, detail="Hesap aktif değil")
     try:
+        _typing_delay(req.text)
         comment = client.media_comment(
             req.media_id,
             req.text,
@@ -321,12 +346,6 @@ async def reply_comment(
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-class UserMediaScrapeRequest(BaseModel):
-    username: str              # Gönderen hesap (sistemizdeki aktif hesap)
-    target_username: str       # Scrape edilecek hesap
-    start_date: str            # Başlangıç tarihi: "DD.MM.YYYY"
-    end_date: str              # Bitiş tarihi: "DD.MM.YYYY"
-    amount: Optional[int] = 50 # Kaç gönderi taranacak (fazla vermek daha güvenli)
 
 
 @router.post("/user/scrape")
@@ -335,10 +354,6 @@ async def scrape_user_media(
     _: str = Depends(verify_api_key),
     manager: AccountManager = Depends(get_account_manager)
 ):
-    """
-    Belirtilen kullanıcının gönderilerini tarih aralığına göre filtreler.
-    Tüm medya tipleri desteklenir: photo, video, reels, carousel.
-    """
     from datetime import datetime
     import pytz
 
@@ -347,7 +362,6 @@ async def scrape_user_media(
         raise HTTPException(status_code=404, detail="Hesap aktif değil")
 
     try:
-        # Tarihleri parse et
         try:
             start = datetime.strptime(req.start_date, "%d.%m.%Y").replace(tzinfo=pytz.utc)
             end = datetime.strptime(req.end_date, "%d.%m.%Y").replace(hour=23, minute=59, second=59, tzinfo=pytz.utc)
@@ -357,20 +371,11 @@ async def scrape_user_media(
         if start > end:
             raise HTTPException(status_code=400, detail="Başlangıç tarihi bitiş tarihinden büyük olamaz")
 
-        # Kullanıcı ID'sini bul
         user_id = client.user_id_from_username(req.target_username)
-
-        # Gönderileri çek
         medias = client.user_medias(user_id, amount=req.amount)
 
-        # Medya tipi eşleştirme
-        media_type_map = {
-            1: "photo",
-            2: "video",
-            8: "carousel"
-        }
+        media_type_map = {1: "photo", 2: "video", 8: "carousel"}
 
-        # Tarih aralığına göre filtrele
         filtered = []
         for m in medias:
             taken_at = m.taken_at
@@ -378,7 +383,6 @@ async def scrape_user_media(
                 taken_at = taken_at.replace(tzinfo=pytz.utc)
 
             if start <= taken_at <= end:
-                # Reels tespiti: video + is_video + product_type
                 media_type = media_type_map.get(m.media_type, "unknown")
                 if media_type == "video" and hasattr(m, "product_type") and m.product_type == "clips":
                     media_type = "reels"
@@ -393,7 +397,6 @@ async def scrape_user_media(
                     "url": f"https://www.instagram.com/p/{m.code}/"
                 })
 
-        # Tarihe göre sırala (yeniden eskiye)
         filtered.sort(key=lambda x: x["taken_at"], reverse=True)
 
         return {
@@ -410,13 +413,6 @@ async def scrape_user_media(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-class MediaInfoRequest(BaseModel):
-    username: str
-    media_id: str
-
-class MediaInfoByUrlRequest(BaseModel):
-    username: str
-    url: str
 
 
 @router.post("/info")
@@ -425,13 +421,11 @@ async def get_media_info(
     _: str = Depends(verify_api_key),
     manager: AccountManager = Depends(get_account_manager)
 ):
-    """Media ID ile gönderinin tüm detaylarını döndürür."""
     client = manager.get_client(req.username)
     if not client:
         raise HTTPException(status_code=404, detail="Hesap aktif değil")
     try:
         m = client.media_info(req.media_id)
-
         media_type_map = {1: "photo", 2: "video", 8: "carousel"}
         media_type = media_type_map.get(m.media_type, "unknown")
         if media_type == "video" and hasattr(m, "product_type") and m.product_type == "clips":
@@ -464,14 +458,12 @@ async def get_media_info_by_url(
     _: str = Depends(verify_api_key),
     manager: AccountManager = Depends(get_account_manager)
 ):
-    """Instagram linki ile gönderinin tüm detaylarını döndürür (link → bilgi tek adımda)."""
     client = manager.get_client(req.username)
     if not client:
         raise HTTPException(status_code=404, detail="Hesap aktif değil")
     try:
         media_id = client.media_pk_from_url(req.url)
         m = client.media_info(media_id)
-
         media_type_map = {1: "photo", 2: "video", 8: "carousel"}
         media_type = media_type_map.get(m.media_type, "unknown")
         if media_type == "video" and hasattr(m, "product_type") and m.product_type == "clips":
