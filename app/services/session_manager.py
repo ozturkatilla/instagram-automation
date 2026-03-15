@@ -2,9 +2,10 @@ import json
 from pathlib import Path
 from loguru import logger
 from instagrapi import Client
-from app.config import get_settings
+from app.core.config import get_settings
 
 settings = get_settings()
+
 
 class SessionManager:
     def __init__(self):
@@ -49,10 +50,14 @@ class SessionManager:
         return False
 
     def verify_session(self, client: Client) -> bool:
+        """
+        [BUG FIX #1] Gerçek bir Instagram API çağrısı yaparak oturumun
+        geçerli olup olmadığını doğrular. Önceki implementasyon sadece
+        user_id varlığını kontrol ediyordu — bu her zaman True dönerdi.
+        """
         try:
-            if client.user_id:
-                return True
-            return False
+            client.get_timeline_feed()
+            return True
         except Exception as e:
-            logger.warning(f"Oturum dogrulama basarisiz: {e}")
+            logger.warning(f"Oturum dogrulanamadi (session gecersiz olabilir): {e}")
             return False

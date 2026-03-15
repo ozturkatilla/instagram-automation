@@ -111,6 +111,7 @@ class AccountManager:
 
     def _create_client(self, proxy: Optional[str] = None, totp_seed: Optional[str] = None, device: Optional[dict] = None) -> Client:
         cl = Client()
+        cl.delay_range = [1, 3]
         if device is None:
             device = random.choice(DEVICE_PROFILES)
         cl.set_settings({

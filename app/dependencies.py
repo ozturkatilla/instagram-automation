@@ -1,12 +1,4 @@
-from fastapi import Header, HTTPException, Request
-from app.config import get_settings
+# Geriye dönük uyumluluk için app.core.dependencies'i yeniden dışa aktarır.
+from app.core.dependencies import verify_api_key, get_account_manager, get_client_or_raise
 
-settings = get_settings()
-
-async def verify_api_key(x_api_key: str = Header(...)):
-    if x_api_key != settings.API_KEY:
-        raise HTTPException(status_code=401, detail="Geçersiz API anahtarı")
-    return x_api_key
-
-async def get_account_manager(request: Request):
-    return request.app.state.account_manager
+__all__ = ["verify_api_key", "get_account_manager", "get_client_or_raise"]

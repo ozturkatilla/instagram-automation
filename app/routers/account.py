@@ -1,29 +1,21 @@
+import asyncio
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
-from typing import Optional, List
+from fastapi.concurrency import run_in_threadpool
 from instagrapi.exceptions import ChallengeRequired, LoginRequired
 
-from app.dependencies import verify_api_key, get_account_manager
+from app.core.dependencies import verify_api_key, get_account_manager, get_client_or_raise
 from app.services.account_manager import AccountManager
+from app.models.account import (
+    ProxyRequest,
+    ProxyRotateRequest,
+    PolicyRequest,
+    RenameRequest,
+    LogoutRequest,
+    FollowRequest,
+)
 
 router = APIRouter()
 
-class ProxyRequest(BaseModel):
-    username: str
-    proxy: str
-
-class ProxyRotateRequest(BaseModel):
-    username: str
-    proxy_pool: List[str]
-
-class PolicyRequest(BaseModel):
-    username: str
-    request_delay: Optional[float] = None
-    max_daily_actions: Optional[int] = None
-
-class RenameRequest(BaseModel):
-    old_username: str
-    new_username: str
 
 @router.get("/status")
 async def account_status(
@@ -33,6 +25,7 @@ async def account_status(
 ):
     return manager.get_status(username)
 
+
 @router.get("/list")
 async def list_accounts(
     _: str = Depends(verify_api_key),
@@ -40,18 +33,19 @@ async def list_accounts(
 ):
     return {"accounts": manager.list_accounts()}
 
+
 @router.get("/check")
 async def check_account(
     username: str,
     _: str = Depends(verify_api_key),
     manager: AccountManager = Depends(get_account_manager)
 ):
-    """Hesabin gercekten aktif olup olmadigini, checkpoint'te olup olmadigini kontrol eder."""
+    """Hesabın gerçekten aktif olup olmadığını, checkpoint'te olup olmadığını kontrol eder."""
     state = manager.accounts.get(username)
     if not state or not state.client:
         raise HTTPException(status_code=404, detail="Hesap bulunamadi veya aktif degil")
     try:
-        state.client.get_timeline_feed()
+        await run_in_threadpool(state.client.get_timeline_feed)
         return {"status": "ok", "username": username, "active": True, "checkpoint": False}
     except ChallengeRequired:
         state.status = "checkpoint"
@@ -63,6 +57,68 @@ async def check_account(
         return {"status": "session_expired", "username": username, "active": False, "checkpoint": False}
     except Exception as e:
         return {"status": "error", "username": username, "active": False, "error": str(e)}
+
+
+@router.post("/logout")
+async def logout(
+    req: LogoutRequest,
+    _: str = Depends(verify_api_key),
+    manager: AccountManager = Depends(get_account_manager)
+):
+    """[YENİ] Hesabı RAM'den çıkarır ve session dosyasını siler."""
+    result = await manager.logout(req.username)
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("error"))
+    return {"status": "ok", "username": req.username, "logged_out": True}
+
+
+@router.post("/follow")
+async def follow_user(
+    req: FollowRequest,
+    _: str = Depends(verify_api_key),
+    manager: AccountManager = Depends(get_account_manager)
+):
+    """[YENİ] Hedef kullanıcıyı takip eder."""
+    client = get_client_or_raise(req.username, manager)
+    try:
+        await asyncio.sleep(2)
+        user_id = await run_in_threadpool(client.user_id_from_username, req.target_username)
+        result = await run_in_threadpool(client.user_follow, user_id)
+        return {
+            "status": "ok",
+            "followed": result,
+            "target_username": req.target_username,
+            "target_user_id": str(user_id)
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/unfollow")
+async def unfollow_user(
+    req: FollowRequest,
+    _: str = Depends(verify_api_key),
+    manager: AccountManager = Depends(get_account_manager)
+):
+    """[YENİ] Hedef kullanıcıyı takipten çıkar."""
+    client = get_client_or_raise(req.username, manager)
+    try:
+        await asyncio.sleep(2)
+        user_id = await run_in_threadpool(client.user_id_from_username, req.target_username)
+        result = await run_in_threadpool(client.user_unfollow, user_id)
+        return {
+            "status": "ok",
+            "unfollowed": result,
+            "target_username": req.target_username,
+            "target_user_id": str(user_id)
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.post("/set_proxy")
 async def set_proxy(
@@ -77,6 +133,7 @@ async def set_proxy(
         state.proxy = req.proxy
     return {"status": "ok", "username": req.username, "proxy": req.proxy}
 
+
 @router.post("/rotate_proxy")
 async def rotate_proxy(
     req: ProxyRotateRequest,
@@ -90,12 +147,14 @@ async def rotate_proxy(
         state.proxy = new_proxy
     return {"status": "ok", "new_proxy": new_proxy}
 
+
 @router.post("/set_policy")
 async def set_policy(
     req: PolicyRequest,
     _: str = Depends(verify_api_key),
 ):
     return {"status": "ok", "policy_updated": True}
+
 
 @router.post("/rename")
 async def rename_account(
@@ -107,6 +166,7 @@ async def rename_account(
     if not result.get("success"):
         raise HTTPException(status_code=400, detail=result.get("error"))
     return {"status": "ok", "old_username": req.old_username, "new_username": req.new_username}
+
 
 @router.get("/devices")
 async def get_devices(

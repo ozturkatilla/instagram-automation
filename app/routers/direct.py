@@ -1,44 +1,30 @@
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
-from typing import List, Optional
+import asyncio
 import random
-import time
-from app.dependencies import verify_api_key, get_account_manager
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.concurrency import run_in_threadpool
+
+from app.core.dependencies import verify_api_key, get_account_manager, get_client_or_raise
 from app.services.account_manager import AccountManager
+from app.models.direct import (
+    DirectMessageRequest,
+    DirectMessageByUsernameRequest,
+    DirectPhotoRequest,
+    DirectVideoRequest,
+    DirectThreadRequest,
+)
 
 router = APIRouter()
 
-class DirectMessageRequest(BaseModel):
-    username: str
-    user_ids: List[str]
-    message: str
 
-class DirectMessageByUsernameRequest(BaseModel):
-    username: str
-    target_username: str
-    message: str
-
-class DirectPhotoRequest(BaseModel):
-    username: str
-    user_ids: List[str]
-    image_path: str
-
-class DirectVideoRequest(BaseModel):
-    username: str
-    user_ids: List[str]
-    video_path: str
-
-class DirectThreadRequest(BaseModel):
-    username: str
-    thread_id: str
-    message: str
-
-
-def _human_typing_delay(message: str):
-    """Mesaj uzunluguna gore insansi yazma gecikmesi."""
+# [BUG FIX #3] time.sleep → asyncio.sleep (event loop'u bloklamıyor)
+async def _human_typing_delay(message: str):
     typing_time = len(message) * random.uniform(0.05, 0.1)
     total_delay = random.uniform(2, 5) + min(typing_time, 8)
-    time.sleep(total_delay)
+    await asyncio.sleep(total_delay)
+
+
+async def _action_delay():
+    await asyncio.sleep(random.uniform(2, 5))
 
 
 @router.post("/send")
@@ -48,14 +34,15 @@ async def send_direct(
     manager: AccountManager = Depends(get_account_manager)
 ):
     """Kullanıcı ID listesine DM gönderir."""
-    client = manager.get_client(req.username)
-    if not client:
-        raise HTTPException(status_code=404, detail="Hesap aktif değil")
+    client = get_client_or_raise(req.username, manager)
     try:
         user_ids_int = [int(uid) for uid in req.user_ids]
-        _human_typing_delay(req.message)
-        thread = client.direct_send(req.message, user_ids_int)
+        await _human_typing_delay(req.message)
+        # [BUG FIX #3] instagrapi senkron çağrısı thread pool'a taşındı
+        thread = await run_in_threadpool(client.direct_send, req.message, user_ids_int)
         return {"status": "ok", "thread_id": str(thread.id)}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -67,19 +54,19 @@ async def send_direct_by_username(
     manager: AccountManager = Depends(get_account_manager)
 ):
     """Kullanıcı adından ID'yi bulup DM gönderir."""
-    client = manager.get_client(req.username)
-    if not client:
-        raise HTTPException(status_code=404, detail="Hesap aktif değil")
+    client = get_client_or_raise(req.username, manager)
     try:
-        user_id = client.user_id_from_username(req.target_username)
-        _human_typing_delay(req.message)
-        thread = client.direct_send(req.message, [int(user_id)])
+        user_id = await run_in_threadpool(client.user_id_from_username, req.target_username)
+        await _human_typing_delay(req.message)
+        thread = await run_in_threadpool(client.direct_send, req.message, [int(user_id)])
         return {
             "status": "ok",
             "target_username": req.target_username,
             "target_user_id": str(user_id),
             "thread_id": str(thread.id)
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -90,15 +77,15 @@ async def send_direct_photo(
     _: str = Depends(verify_api_key),
     manager: AccountManager = Depends(get_account_manager)
 ):
-    """Kullanıcı ID listesine DM ile fotograf gönderir."""
-    client = manager.get_client(req.username)
-    if not client:
-        raise HTTPException(status_code=404, detail="Hesap aktif değil")
+    """Kullanıcı ID listesine DM ile fotoğraf gönderir."""
+    client = get_client_or_raise(req.username, manager)
     try:
         user_ids_int = [int(uid) for uid in req.user_ids]
-        time.sleep(random.uniform(2, 5))
-        thread = client.direct_send_photo(req.image_path, user_ids_int)
+        await _action_delay()
+        thread = await run_in_threadpool(client.direct_send_photo, req.image_path, user_ids_int)
         return {"status": "ok", "thread_id": str(thread.id), "media_type": "photo"}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -110,14 +97,14 @@ async def send_direct_video(
     manager: AccountManager = Depends(get_account_manager)
 ):
     """Kullanıcı ID listesine DM ile video gönderir."""
-    client = manager.get_client(req.username)
-    if not client:
-        raise HTTPException(status_code=404, detail="Hesap aktif değil")
+    client = get_client_or_raise(req.username, manager)
     try:
         user_ids_int = [int(uid) for uid in req.user_ids]
-        time.sleep(random.uniform(2, 5))
-        thread = client.direct_send_video(req.video_path, user_ids_int)
+        await _action_delay()
+        thread = await run_in_threadpool(client.direct_send_video, req.video_path, user_ids_int)
         return {"status": "ok", "thread_id": str(thread.id), "media_type": "video"}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -128,14 +115,16 @@ async def reply_to_thread(
     _: str = Depends(verify_api_key),
     manager: AccountManager = Depends(get_account_manager)
 ):
-    """Mevcut bir DM thread'ine yanit gönderir."""
-    client = manager.get_client(req.username)
-    if not client:
-        raise HTTPException(status_code=404, detail="Hesap aktif değil")
+    """Mevcut bir DM thread'ine yanıt gönderir."""
+    client = get_client_or_raise(req.username, manager)
     try:
-        _human_typing_delay(req.message)
-        thread = client.direct_send(req.message, thread_ids=[int(req.thread_id)])
+        await _human_typing_delay(req.message)
+        thread = await run_in_threadpool(
+            client.direct_send, req.message, [], [int(req.thread_id)]
+        )
         return {"status": "ok", "thread_id": str(thread.id)}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -147,12 +136,10 @@ async def get_threads(
     _: str = Depends(verify_api_key),
     manager: AccountManager = Depends(get_account_manager)
 ):
-    """Hesabin DM thread listesini döndürür."""
-    client = manager.get_client(username)
-    if not client:
-        raise HTTPException(status_code=404, detail="Hesap aktif değil")
+    """Hesabın DM thread listesini döndürür."""
+    client = get_client_or_raise(username, manager)
     try:
-        threads = client.direct_threads(amount=amount)
+        threads = await run_in_threadpool(client.direct_threads, amount=amount)
         return {
             "status": "ok",
             "count": len(threads),
@@ -165,6 +152,8 @@ async def get_threads(
                 for t in threads
             ]
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -177,12 +166,10 @@ async def get_thread_messages(
     _: str = Depends(verify_api_key),
     manager: AccountManager = Depends(get_account_manager)
 ):
-    """Belirli bir thread'deki mesajlari döndürür."""
-    client = manager.get_client(username)
-    if not client:
-        raise HTTPException(status_code=404, detail="Hesap aktif değil")
+    """Belirli bir thread'deki mesajları döndürür."""
+    client = get_client_or_raise(username, manager)
     try:
-        thread = client.direct_thread(int(thread_id), amount=amount)
+        thread = await run_in_threadpool(client.direct_thread, int(thread_id), amount=amount)
         return {
             "status": "ok",
             "thread_id": thread_id,
@@ -197,5 +184,7 @@ async def get_thread_messages(
                 for m in thread.messages
             ]
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

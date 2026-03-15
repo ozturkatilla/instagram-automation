@@ -1,26 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
 from typing import Optional
-from app.dependencies import verify_api_key, get_account_manager
+
+from app.core.dependencies import verify_api_key, get_account_manager
 from app.services.account_manager import AccountManager
+from app.models.auth import LoginRequest, SessionLoginRequest, ChallengeSubmitRequest
 
 router = APIRouter()
-
-class LoginRequest(BaseModel):
-    username: str
-    password: str
-    proxy: Optional[str] = None
-    totp_seed: Optional[str] = None
-
-class SessionLoginRequest(BaseModel):
-    username: str
-    session_id: str
-    proxy: Optional[str] = None
-    totp_seed: Optional[str] = None
-
-class ChallengeSubmitRequest(BaseModel):
-    username: str
-    code: str
 
 
 @router.post("/login")
@@ -29,7 +14,7 @@ async def login(
     _: str = Depends(verify_api_key),
     manager: AccountManager = Depends(get_account_manager)
 ):
-    """Kullanıcı adi ve sifre ile Instagram'a giris yapar. TOTP seed varsa 2FA otomatik cozulur."""
+    """Kullanıcı adı ve şifre ile Instagram'a giriş yapar. TOTP seed varsa 2FA otomatik çözülür."""
     success = await manager.login_with_password(
         req.username, req.password, req.proxy, req.totp_seed
     )
@@ -50,7 +35,7 @@ async def login_by_sessionid(
     _: str = Depends(verify_api_key),
     manager: AccountManager = Depends(get_account_manager)
 ):
-    """Mevcut bir Instagram session_id ile giris yapar."""
+    """Mevcut bir Instagram session_id ile giriş yapar."""
     success = await manager.login_with_sessionid(
         req.username, req.session_id, req.proxy, req.totp_seed
     )
@@ -71,7 +56,7 @@ async def challenge_submit(
     _: str = Depends(verify_api_key),
     manager: AccountManager = Depends(get_account_manager)
 ):
-    """Instagram challenge dogrulama kodunu gonderir."""
+    """Instagram challenge doğrulama kodunu gönderir."""
     result = await manager.submit_challenge_code(req.username, req.code)
     if not result.get("success"):
         raise HTTPException(status_code=400, detail=result.get("error", "Challenge cozumu basarisiz"))

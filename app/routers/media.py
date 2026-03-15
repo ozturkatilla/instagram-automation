@@ -1,99 +1,43 @@
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
-from typing import Optional, List
+import asyncio
 import random
-import time
-from app.dependencies import verify_api_key, get_account_manager
+from datetime import datetime
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.concurrency import run_in_threadpool
+import pytz
+
+from app.core.dependencies import verify_api_key, get_account_manager, get_client_or_raise
 from app.services.account_manager import AccountManager
+from app.models.media import (
+    LikersRequest,
+    LikeRequest,
+    PkFromUrlRequest,
+    PhotoUploadRequest,
+    VideoUploadRequest,
+    ReelsUploadRequest,
+    StoryPhotoRequest,
+    StoryVideoRequest,
+    CarouselUploadRequest,
+    CommentsRequest,
+    CommentRequest,
+    CommentDeleteRequest,
+    CommentLikeRequest,
+    CommentReplyRequest,
+    UserMediaScrapeRequest,
+    MediaInfoRequest,
+    MediaInfoByUrlRequest,
+)
 
 router = APIRouter()
 
-class LikersRequest(BaseModel):
-    username: str
-    media_id: str
 
-class PkFromUrlRequest(BaseModel):
-    username: str
-    url: str
-
-class PhotoUploadRequest(BaseModel):
-    username: str
-    image_path: str
-    caption: Optional[str] = ""
-
-class VideoUploadRequest(BaseModel):
-    username: str
-    video_path: str
-    caption: Optional[str] = ""
-
-class ReelsUploadRequest(BaseModel):
-    username: str
-    video_path: str
-    caption: Optional[str] = ""
-
-class StoryPhotoRequest(BaseModel):
-    username: str
-    image_path: str
-
-class StoryVideoRequest(BaseModel):
-    username: str
-    video_path: str
-
-class CarouselUploadRequest(BaseModel):
-    username: str
-    paths: List[str]
-    caption: Optional[str] = ""
-
-class CommentsRequest(BaseModel):
-    username: str
-    media_id: str
-    amount: Optional[int] = 20
-
-class CommentRequest(BaseModel):
-    username: str
-    media_id: str
-    text: str
-
-class CommentDeleteRequest(BaseModel):
-    username: str
-    media_id: str
-    comment_pk: str
-
-class CommentLikeRequest(BaseModel):
-    username: str
-    comment_pk: str
-
-class CommentReplyRequest(BaseModel):
-    username: str
-    media_id: str
-    comment_pk: str
-    text: str
-
-class UserMediaScrapeRequest(BaseModel):
-    username: str
-    target_username: str
-    start_date: str
-    end_date: str
-    amount: Optional[int] = 50
-
-class MediaInfoRequest(BaseModel):
-    username: str
-    media_id: str
-
-class MediaInfoByUrlRequest(BaseModel):
-    username: str
-    url: str
+# [BUG FIX #4] time.sleep → asyncio.sleep (event loop'u bloklamıyor)
+async def _action_delay():
+    await asyncio.sleep(random.uniform(2, 5))
 
 
-def _action_delay():
-    """Aksiyon oncesi insansi bekleme."""
-    time.sleep(random.uniform(2, 5))
-
-
-def _typing_delay(text: str):
-    """Metin uzunluguna gore yazma gecikmesi."""
+async def _typing_delay(text: str):
     typing_time = len(text) * random.uniform(0.05, 0.1)
-    time.sleep(random.uniform(2, 5) + min(typing_time, 8))
+    await asyncio.sleep(random.uniform(2, 5) + min(typing_time, 8))
 
 
 @router.post("/likers")
@@ -102,17 +46,53 @@ async def get_media_likers(
     _: str = Depends(verify_api_key),
     manager: AccountManager = Depends(get_account_manager)
 ):
-    client = manager.get_client(req.username)
-    if not client:
-        raise HTTPException(status_code=404, detail="Hesap aktif değil")
+    client = get_client_or_raise(req.username, manager)
     try:
-        likers = client.media_likers(req.media_id)
+        likers = await run_in_threadpool(client.media_likers, req.media_id)
         return {
             "status": "ok",
             "media_id": req.media_id,
             "count": len(likers),
             "users": [{"pk": u.pk, "username": u.username} for u in likers]
         }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/like")
+async def like_media(
+    req: LikeRequest,
+    _: str = Depends(verify_api_key),
+    manager: AccountManager = Depends(get_account_manager)
+):
+    """[YENİ] Gönderiyi beğenir."""
+    client = get_client_or_raise(req.username, manager)
+    try:
+        await _action_delay()
+        result = await run_in_threadpool(client.media_like, req.media_id)
+        return {"status": "ok", "liked": result, "media_id": req.media_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/unlike")
+async def unlike_media(
+    req: LikeRequest,
+    _: str = Depends(verify_api_key),
+    manager: AccountManager = Depends(get_account_manager)
+):
+    """[YENİ] Gönderi beğenisini geri alır."""
+    client = get_client_or_raise(req.username, manager)
+    try:
+        await _action_delay()
+        result = await run_in_threadpool(client.media_unlike, req.media_id)
+        return {"status": "ok", "unliked": result, "media_id": req.media_id}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -123,12 +103,12 @@ async def pk_from_url(
     _: str = Depends(verify_api_key),
     manager: AccountManager = Depends(get_account_manager)
 ):
-    client = manager.get_client(req.username)
-    if not client:
-        raise HTTPException(status_code=404, detail="Hesap aktif değil")
+    client = get_client_or_raise(req.username, manager)
     try:
-        pk = client.media_pk_from_url(req.url)
+        pk = await run_in_threadpool(client.media_pk_from_url, req.url)
         return {"status": "ok", "url": req.url, "media_pk": str(pk)}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -139,13 +119,13 @@ async def upload_photo(
     _: str = Depends(verify_api_key),
     manager: AccountManager = Depends(get_account_manager)
 ):
-    client = manager.get_client(req.username)
-    if not client:
-        raise HTTPException(status_code=404, detail="Hesap aktif değil")
+    client = get_client_or_raise(req.username, manager)
     try:
-        _action_delay()
-        media = client.photo_upload(req.image_path, caption=req.caption)
+        await _action_delay()
+        media = await run_in_threadpool(client.photo_upload, req.image_path, caption=req.caption)
         return {"status": "ok", "media_id": str(media.pk), "media_type": "photo"}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -156,13 +136,13 @@ async def upload_video(
     _: str = Depends(verify_api_key),
     manager: AccountManager = Depends(get_account_manager)
 ):
-    client = manager.get_client(req.username)
-    if not client:
-        raise HTTPException(status_code=404, detail="Hesap aktif değil")
+    client = get_client_or_raise(req.username, manager)
     try:
-        _action_delay()
-        media = client.video_upload(req.video_path, caption=req.caption)
+        await _action_delay()
+        media = await run_in_threadpool(client.video_upload, req.video_path, caption=req.caption)
         return {"status": "ok", "media_id": str(media.pk), "media_type": "video"}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -173,13 +153,13 @@ async def upload_reels(
     _: str = Depends(verify_api_key),
     manager: AccountManager = Depends(get_account_manager)
 ):
-    client = manager.get_client(req.username)
-    if not client:
-        raise HTTPException(status_code=404, detail="Hesap aktif değil")
+    client = get_client_or_raise(req.username, manager)
     try:
-        _action_delay()
-        media = client.clip_upload(req.video_path, caption=req.caption)
+        await _action_delay()
+        media = await run_in_threadpool(client.clip_upload, req.video_path, caption=req.caption)
         return {"status": "ok", "media_id": str(media.pk), "media_type": "reels"}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -190,13 +170,13 @@ async def upload_story_photo(
     _: str = Depends(verify_api_key),
     manager: AccountManager = Depends(get_account_manager)
 ):
-    client = manager.get_client(req.username)
-    if not client:
-        raise HTTPException(status_code=404, detail="Hesap aktif değil")
+    client = get_client_or_raise(req.username, manager)
     try:
-        _action_delay()
-        media = client.photo_upload_to_story(req.image_path)
+        await _action_delay()
+        media = await run_in_threadpool(client.photo_upload_to_story, req.image_path)
         return {"status": "ok", "media_id": str(media.pk), "media_type": "story_photo"}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -207,13 +187,13 @@ async def upload_story_video(
     _: str = Depends(verify_api_key),
     manager: AccountManager = Depends(get_account_manager)
 ):
-    client = manager.get_client(req.username)
-    if not client:
-        raise HTTPException(status_code=404, detail="Hesap aktif değil")
+    client = get_client_or_raise(req.username, manager)
     try:
-        _action_delay()
-        media = client.video_upload_to_story(req.video_path)
+        await _action_delay()
+        media = await run_in_threadpool(client.video_upload_to_story, req.video_path)
         return {"status": "ok", "media_id": str(media.pk), "media_type": "story_video"}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -224,13 +204,13 @@ async def upload_carousel(
     _: str = Depends(verify_api_key),
     manager: AccountManager = Depends(get_account_manager)
 ):
-    client = manager.get_client(req.username)
-    if not client:
-        raise HTTPException(status_code=404, detail="Hesap aktif değil")
+    client = get_client_or_raise(req.username, manager)
     try:
-        _action_delay()
-        media = client.album_upload(req.paths, caption=req.caption)
+        await _action_delay()
+        media = await run_in_threadpool(client.album_upload, req.paths, caption=req.caption)
         return {"status": "ok", "media_id": str(media.pk), "media_type": "carousel"}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -241,11 +221,9 @@ async def get_comments(
     _: str = Depends(verify_api_key),
     manager: AccountManager = Depends(get_account_manager)
 ):
-    client = manager.get_client(req.username)
-    if not client:
-        raise HTTPException(status_code=404, detail="Hesap aktif değil")
+    client = get_client_or_raise(req.username, manager)
     try:
-        comments = client.media_comments(req.media_id, amount=req.amount)
+        comments = await run_in_threadpool(client.media_comments, req.media_id, amount=req.amount)
         return {
             "status": "ok",
             "media_id": req.media_id,
@@ -262,6 +240,8 @@ async def get_comments(
                 for c in comments
             ]
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -272,18 +252,18 @@ async def post_comment(
     _: str = Depends(verify_api_key),
     manager: AccountManager = Depends(get_account_manager)
 ):
-    client = manager.get_client(req.username)
-    if not client:
-        raise HTTPException(status_code=404, detail="Hesap aktif değil")
+    client = get_client_or_raise(req.username, manager)
     try:
-        _typing_delay(req.text)
-        comment = client.media_comment(req.media_id, req.text)
+        await _typing_delay(req.text)
+        comment = await run_in_threadpool(client.media_comment, req.media_id, req.text)
         return {
             "status": "ok",
             "comment_pk": str(comment.pk),
             "text": comment.text,
             "media_id": req.media_id
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -294,13 +274,13 @@ async def delete_comment(
     _: str = Depends(verify_api_key),
     manager: AccountManager = Depends(get_account_manager)
 ):
-    client = manager.get_client(req.username)
-    if not client:
-        raise HTTPException(status_code=404, detail="Hesap aktif değil")
+    client = get_client_or_raise(req.username, manager)
     try:
-        _action_delay()
-        result = client.comment_delete(req.media_id, req.comment_pk)
+        await _action_delay()
+        result = await run_in_threadpool(client.comment_delete, req.media_id, req.comment_pk)
         return {"status": "ok", "deleted": result, "comment_pk": req.comment_pk}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -311,13 +291,13 @@ async def like_comment(
     _: str = Depends(verify_api_key),
     manager: AccountManager = Depends(get_account_manager)
 ):
-    client = manager.get_client(req.username)
-    if not client:
-        raise HTTPException(status_code=404, detail="Hesap aktif değil")
+    client = get_client_or_raise(req.username, manager)
     try:
-        _action_delay()
-        result = client.comment_like(req.comment_pk)
+        await _action_delay()
+        result = await run_in_threadpool(client.comment_like, req.comment_pk)
         return {"status": "ok", "liked": result, "comment_pk": req.comment_pk}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -328,12 +308,11 @@ async def reply_comment(
     _: str = Depends(verify_api_key),
     manager: AccountManager = Depends(get_account_manager)
 ):
-    client = manager.get_client(req.username)
-    if not client:
-        raise HTTPException(status_code=404, detail="Hesap aktif değil")
+    client = get_client_or_raise(req.username, manager)
     try:
-        _typing_delay(req.text)
-        comment = client.media_comment(
+        await _typing_delay(req.text)
+        comment = await run_in_threadpool(
+            client.media_comment,
             req.media_id,
             req.text,
             replied_to_comment_id=int(req.comment_pk)
@@ -344,6 +323,8 @@ async def reply_comment(
             "text": comment.text,
             "replied_to": req.comment_pk
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -354,13 +335,7 @@ async def scrape_user_media(
     _: str = Depends(verify_api_key),
     manager: AccountManager = Depends(get_account_manager)
 ):
-    from datetime import datetime
-    import pytz
-
-    client = manager.get_client(req.username)
-    if not client:
-        raise HTTPException(status_code=404, detail="Hesap aktif değil")
-
+    client = get_client_or_raise(req.username, manager)
     try:
         try:
             start = datetime.strptime(req.start_date, "%d.%m.%Y").replace(tzinfo=pytz.utc)
@@ -371,22 +346,19 @@ async def scrape_user_media(
         if start > end:
             raise HTTPException(status_code=400, detail="Başlangıç tarihi bitiş tarihinden büyük olamaz")
 
-        user_id = client.user_id_from_username(req.target_username)
-        medias = client.user_medias(user_id, amount=req.amount)
+        user_id = await run_in_threadpool(client.user_id_from_username, req.target_username)
+        medias = await run_in_threadpool(client.user_medias, user_id, amount=req.amount)
 
         media_type_map = {1: "photo", 2: "video", 8: "carousel"}
-
         filtered = []
         for m in medias:
             taken_at = m.taken_at
             if taken_at.tzinfo is None:
                 taken_at = taken_at.replace(tzinfo=pytz.utc)
-
             if start <= taken_at <= end:
                 media_type = media_type_map.get(m.media_type, "unknown")
                 if media_type == "video" and hasattr(m, "product_type") and m.product_type == "clips":
                     media_type = "reels"
-
                 filtered.append({
                     "media_id": str(m.pk),
                     "media_type": media_type,
@@ -398,7 +370,6 @@ async def scrape_user_media(
                 })
 
         filtered.sort(key=lambda x: x["taken_at"], reverse=True)
-
         return {
             "status": "ok",
             "target_username": req.target_username,
@@ -408,7 +379,6 @@ async def scrape_user_media(
             "total_found": len(filtered),
             "media": filtered
         }
-
     except HTTPException:
         raise
     except Exception as e:
@@ -421,16 +391,13 @@ async def get_media_info(
     _: str = Depends(verify_api_key),
     manager: AccountManager = Depends(get_account_manager)
 ):
-    client = manager.get_client(req.username)
-    if not client:
-        raise HTTPException(status_code=404, detail="Hesap aktif değil")
+    client = get_client_or_raise(req.username, manager)
     try:
-        m = client.media_info(req.media_id)
+        m = await run_in_threadpool(client.media_info, req.media_id)
         media_type_map = {1: "photo", 2: "video", 8: "carousel"}
         media_type = media_type_map.get(m.media_type, "unknown")
         if media_type == "video" and hasattr(m, "product_type") and m.product_type == "clips":
             media_type = "reels"
-
         return {
             "status": "ok",
             "media_id": str(m.pk),
@@ -448,6 +415,8 @@ async def get_media_info(
             "thumbnail_url": str(m.thumbnail_url) if m.thumbnail_url else None,
             "video_url": str(m.video_url) if hasattr(m, "video_url") and m.video_url else None
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -458,17 +427,14 @@ async def get_media_info_by_url(
     _: str = Depends(verify_api_key),
     manager: AccountManager = Depends(get_account_manager)
 ):
-    client = manager.get_client(req.username)
-    if not client:
-        raise HTTPException(status_code=404, detail="Hesap aktif değil")
+    client = get_client_or_raise(req.username, manager)
     try:
-        media_id = client.media_pk_from_url(req.url)
-        m = client.media_info(media_id)
+        media_id = await run_in_threadpool(client.media_pk_from_url, req.url)
+        m = await run_in_threadpool(client.media_info, media_id)
         media_type_map = {1: "photo", 2: "video", 8: "carousel"}
         media_type = media_type_map.get(m.media_type, "unknown")
         if media_type == "video" and hasattr(m, "product_type") and m.product_type == "clips":
             media_type = "reels"
-
         return {
             "status": "ok",
             "media_id": str(m.pk),
@@ -486,5 +452,7 @@ async def get_media_info_by_url(
             "thumbnail_url": str(m.thumbnail_url) if m.thumbnail_url else None,
             "video_url": str(m.video_url) if hasattr(m, "video_url") and m.video_url else None
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

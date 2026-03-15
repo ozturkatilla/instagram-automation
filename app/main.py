@@ -4,14 +4,20 @@ from contextlib import asynccontextmanager
 from loguru import logger
 import os
 
-from app.config import get_settings
+from app.core.config import get_settings
+from app.utils.logger import setup_logger
 from app.services.account_manager import AccountManager
 from app.routers import auth, account, media, direct, health
 
 settings = get_settings()
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # [BUG FIX #5] setup_logger() artık burada çağrılıyor.
+    # Önceki implementasyonda bu çağrı yoktu — log dosyasına hiçbir şey yazılmıyordu.
+    setup_logger()
+
     os.makedirs(settings.SESSION_DIR, exist_ok=True)
     os.makedirs(settings.DATA_DIR, exist_ok=True)
     os.makedirs(settings.LOG_DIR, exist_ok=True)
@@ -23,6 +29,7 @@ async def lifespan(app: FastAPI):
     yield
 
     logger.info("Uygulama kapatılıyor...")
+
 
 app = FastAPI(
     title=settings.APP_NAME,

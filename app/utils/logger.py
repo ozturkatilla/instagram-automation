@@ -1,15 +1,16 @@
 from loguru import logger
 import sys
-from app.config import get_settings
+from app.core.config import get_settings
 
 settings = get_settings()
+
 
 def setup_logger():
     logger.remove()
     logger.add(
         sys.stdout,
         format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}",
-        level="INFO"
+        level="DEBUG" if settings.DEBUG else "INFO"
     )
     logger.add(
         f"{settings.LOG_DIR}/app.log",

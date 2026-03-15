@@ -1,14 +1,19 @@
 import json
+import threading
 from pathlib import Path
 from typing import Optional, List
 from loguru import logger
-from app.config import get_settings
+from app.core.config import get_settings
 
 settings = get_settings()
+
 
 class ProxyManager:
     def __init__(self):
         self.proxy_file = Path(settings.DATA_DIR) / "proxies.json"
+        # [BUG FIX #7] Thread-safe erişim için lock eklendi.
+        # Önceki implementasyon eş zamanlı request'lerde proxies.json'ı bozabiliyordu.
+        self._lock = threading.Lock()
         self._proxies: dict = self._load()
 
     def _load(self) -> dict:
@@ -23,28 +28,35 @@ class ProxyManager:
             json.dump(self._proxies, f, indent=2)
 
     def set_proxy(self, username: str, proxy: str):
-        self._proxies[username] = proxy
-        self._save()
+        with self._lock:
+            self._proxies[username] = proxy
+            self._save()
         logger.info(f"Proxy atandı: {username} -> {proxy}")
 
     def get_proxy(self, username: str) -> Optional[str]:
-        return self._proxies.get(username)
+        with self._lock:
+            return self._proxies.get(username)
 
     def remove_proxy(self, username: str):
-        if username in self._proxies:
-            del self._proxies[username]
-            self._save()
-            logger.info(f"Proxy kaldırıldı: {username}")
+        with self._lock:
+            if username in self._proxies:
+                del self._proxies[username]
+                self._save()
+        logger.info(f"Proxy kaldırıldı: {username}")
 
     def rotate_proxy(self, username: str, proxy_pool: List[str]) -> str:
-        current = self.get_proxy(username)
-        if current in proxy_pool:
-            idx = proxy_pool.index(current)
-            next_proxy = proxy_pool[(idx + 1) % len(proxy_pool)]
-        else:
-            next_proxy = proxy_pool[0]
-        self.set_proxy(username, next_proxy)
+        with self._lock:
+            current = self._proxies.get(username)
+            if current in proxy_pool:
+                idx = proxy_pool.index(current)
+                next_proxy = proxy_pool[(idx + 1) % len(proxy_pool)]
+            else:
+                next_proxy = proxy_pool[0]
+            self._proxies[username] = next_proxy
+            self._save()
+        logger.info(f"Proxy rotasyonu: {username} -> {next_proxy}")
         return next_proxy
 
     def list_all(self) -> dict:
-        return dict(self._proxies)
+        with self._lock:
+            return dict(self._proxies)
