@@ -7,6 +7,8 @@ from instagrapi.exceptions import ChallengeRequired
 import random
 import time
 import json
+import asyncio
+from fastapi.concurrency import run_in_threadpool
 
 from app.config import get_settings
 from app.services.session_manager import SessionManager
@@ -183,7 +185,7 @@ class AccountManager:
         state.proxy = proxy
 
         if self.session_manager.load_session(state.client, username):
-            if self.session_manager.verify_session(state.client):
+            if await run_in_threadpool(self.session_manager.verify_session, state.client):
                 state.is_logged_in = True
                 state.status = "active"
                 logger.info(f"Hesap aktif: {username}")
@@ -213,7 +215,7 @@ class AccountManager:
                 device = self._read_device_from_session(username)
                 state.client = self._create_client(username, proxy, totp_seed, device=device)
                 if self.session_manager.load_session(state.client, username):
-                    if self.session_manager.verify_session(state.client):
+                    if await run_in_threadpool(self.session_manager.verify_session, state.client):
                         state.is_logged_in = True
                         state.status = "active"
                         state.last_login = datetime.now()
@@ -222,15 +224,15 @@ class AccountManager:
                         return True
 
             if totp_seed:
-                totp_code = state.client.totp_generate_code(totp_seed)
+                totp_code = await run_in_threadpool(state.client.totp_generate_code, totp_seed)
                 logger.info(f"TOTP kodu uretildi: {username}")
                 try:
-                    state.client.login(username, password, verification_code=totp_code)
+                    await run_in_threadpool(state.client.login, username, password, verification_code=totp_code)
                 except Exception as e:
                     logger.warning(f"Login exception (devam ediliyor): {e}")
             else:
                 try:
-                    state.client.login(username, password)
+                    await run_in_threadpool(state.client.login, username, password)
                 except Exception as e:
                     logger.warning(f"Login exception (devam ediliyor): {e}")
 
@@ -238,7 +240,7 @@ class AccountManager:
                 raise Exception("Login basarisiz - user_id bos")
 
             # Login sonrasi bekleme - Instagram rate limit icin
-            time.sleep(3)
+            await asyncio.sleep(3)
 
             self.session_manager.save_session(state.client, username)
             state.is_logged_in = True
@@ -285,8 +287,8 @@ class AccountManager:
             self.proxy_manager.set_proxy(username, proxy)
 
         try:
-            state.client.login_by_sessionid(session_id)
-            time.sleep(3)
+            await run_in_threadpool(state.client.login_by_sessionid, session_id)
+            await asyncio.sleep(3)
             self.session_manager.save_session(state.client, username)
             state.is_logged_in = True
             state.status = "active"
@@ -324,7 +326,7 @@ class AccountManager:
             return {"success": False, "error": "Bu hesapta aktif challenge yok"}
         try:
             state.client.challenge_code_handler = lambda u, c: code
-            state.client.challenge_resolve(state.client.last_json)
+            await run_in_threadpool(state.client.challenge_resolve, state.client.last_json)
             self.session_manager.save_session(state.client, username)
             state.is_logged_in = True
             state.status = "active"
