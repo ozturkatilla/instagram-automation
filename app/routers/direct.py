@@ -18,7 +18,8 @@ router = APIRouter()
 
 # [BUG FIX #3] time.sleep → asyncio.sleep (event loop'u bloklamıyor)
 async def _human_typing_delay(message: str):
-    typing_time = len(message) * random.uniform(0.05, 0.1)
+    msg_len = len(message) if message else 0
+    typing_time = msg_len * random.uniform(0.05, 0.1)
     total_delay = random.uniform(2, 5) + min(typing_time, 8)
     await asyncio.sleep(total_delay)
 
@@ -36,7 +37,16 @@ async def send_direct(
     """Kullanıcı ID listesine DM gönderir."""
     client = get_client_or_raise(req.username, manager)
     try:
-        user_ids_int = [int(uid) for uid in req.user_ids]
+        user_ids_int = []
+        for uid in req.user_ids:
+            try:
+                user_ids_int.append(int(uid))
+            except (ValueError, TypeError):
+                continue
+                
+        if not user_ids_int:
+            raise HTTPException(status_code=400, detail="Geçerli user_id bulunamadı")
+            
         await _human_typing_delay(req.message)
         # [BUG FIX #3] instagrapi senkron çağrısı thread pool'a taşındı
         thread = await run_in_threadpool(client.direct_send, req.message, user_ids_int)
