@@ -31,7 +31,21 @@ async def list_accounts(
     _: str = Depends(verify_api_key),
     manager: AccountManager = Depends(get_account_manager)
 ):
-    return {"accounts": manager.list_accounts()}
+    """Aktif olarak giriş yapmış hesapları listeler."""
+    all_accounts = manager.list_accounts()
+    logged_in = [acc for acc in all_accounts if acc.get("is_logged_in") is True]
+    return {"status": "ok", "count": len(logged_in), "accounts": logged_in}
+
+
+@router.get("/list/logged_out")
+async def list_logged_out_accounts(
+    _: str = Depends(verify_api_key),
+    manager: AccountManager = Depends(get_account_manager)
+):
+    """Giriş yapılmamış (hata alan, düşen) hesapları listeler."""
+    all_accounts = manager.list_accounts()
+    logged_out = [acc for acc in all_accounts if acc.get("is_logged_in") is False]
+    return {"status": "ok", "count": len(logged_out), "accounts": logged_out}
 
 
 @router.get("/check")
