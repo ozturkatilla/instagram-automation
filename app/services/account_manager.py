@@ -109,11 +109,13 @@ class AccountManager:
         self.data_dir = Path(settings.DATA_DIR)
         self.data_dir.mkdir(parents=True, exist_ok=True)
 
-    def _create_client(self, proxy: Optional[str] = None, totp_seed: Optional[str] = None, device: Optional[dict] = None) -> Client:
+    def _create_client(self, username: str, proxy: Optional[str] = None, totp_seed: Optional[str] = None, device: Optional[dict] = None) -> Client:
         cl = Client()
         cl.delay_range = [1, 3]
         if device is None:
-            device = random.choice(DEVICE_PROFILES)
+            import hashlib
+            device_index = int(hashlib.md5(username.encode()).hexdigest(), 16) % len(DEVICE_PROFILES)
+            device = DEVICE_PROFILES[device_index]
         cl.set_settings({
             "device_settings": {
                 "app_version": device["app_version"],
@@ -177,7 +179,7 @@ class AccountManager:
 
         # Session'daki cihaz bilgisini oku - tutarlilik icin
         device = self._read_device_from_session(username)
-        state.client = self._create_client(proxy, device=device)
+        state.client = self._create_client(username, proxy, device=device)
         state.proxy = proxy
 
         if self.session_manager.load_session(state.client, username):
@@ -200,7 +202,7 @@ class AccountManager:
     ) -> bool:
         state = AccountState(username)
         state.totp_seed = totp_seed
-        state.client = self._create_client(proxy, totp_seed)
+        state.client = self._create_client(username, proxy, totp_seed)
 
         if proxy:
             state.proxy = proxy
@@ -209,7 +211,7 @@ class AccountManager:
         try:
             if self.session_manager.session_exists(username):
                 device = self._read_device_from_session(username)
-                state.client = self._create_client(proxy, totp_seed, device=device)
+                state.client = self._create_client(username, proxy, totp_seed, device=device)
                 if self.session_manager.load_session(state.client, username):
                     if self.session_manager.verify_session(state.client):
                         state.is_logged_in = True
@@ -276,7 +278,7 @@ class AccountManager:
     ) -> bool:
         state = AccountState(username)
         state.totp_seed = totp_seed
-        state.client = self._create_client(proxy, totp_seed)
+        state.client = self._create_client(username, proxy, totp_seed)
 
         if proxy:
             state.proxy = proxy
