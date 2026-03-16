@@ -19,13 +19,8 @@ def get_client_or_raise(username: str, manager):
     """
     Hesabın aktif client'ını döndürür.
     - 404: Hesap bulunamadı veya oturum açık değil
-    - 429: Günlük işlem limiti aşıldı
     """
-    from app.services.account_manager import DailyLimitExceeded
-    try:
-        client = manager.get_client(username)
-    except DailyLimitExceeded as e:
-        raise HTTPException(status_code=429, detail=str(e))
+    client = manager.get_client(username)
     if not client:
         raise HTTPException(status_code=404, detail="Hesap aktif değil")
     return client
