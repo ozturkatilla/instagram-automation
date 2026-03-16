@@ -112,7 +112,7 @@ class AccountManager:
         self.data_dir.mkdir(parents=True, exist_ok=True)
 
     def _create_client(self, username: str, proxy: Optional[str] = None, totp_seed: Optional[str] = None, device: Optional[dict] = None) -> Client:
-        cl = Client()
+        cl = Client(request_timeout=30)
         cl.delay_range = [1, 3]
         if device is None:
             import hashlib
