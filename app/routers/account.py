@@ -182,6 +182,18 @@ async def rename_account(
     return {"status": "ok", "old_username": req.old_username, "new_username": req.new_username}
 
 
+@router.get("/session_info")
+async def get_session_info(
+    username: str,
+    _: str = Depends(verify_api_key),
+    manager: AccountManager = Depends(get_account_manager)
+):
+    """[YENİ] Hesabın session id'sini, proxy'sini ve bağlandığı cihaz bilgilerini dışa aktarır."""
+    info = manager.get_session_info(username)
+    if not info:
+        raise HTTPException(status_code=404, detail="Hesap veya oturum (session) bulunamadi, once login olmalisiniz")
+    return {"status": "ok", "info": info}
+
 @router.get("/devices")
 async def get_devices(
     username: str,

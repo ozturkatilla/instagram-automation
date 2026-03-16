@@ -393,3 +393,48 @@ class AccountManager:
         except Exception as e:
             logger.error(f"Rename basarisiz {old_username}: {e}")
             return {"success": False, "error": str(e)}
+
+    def get_session_info(self, username: str) -> Optional[dict]:
+        """[YENİ] Session ID, Proxy ve Cihaz bilgilerini JSON'dan okur."""
+        state = self.accounts.get(username)
+        if not state or not self.session_manager.session_exists(username):
+            return None
+        
+        try:
+            with open(self.session_manager.session_path(username), "r") as f:
+                data = json.load(f)
+            
+            # Extract sessionid from cookies
+            session_id = None
+            cookies = data.get("authorization_data", {}).get("cookies", {})
+            if isinstance(cookies, dict):
+                session_id = cookies.get("sessionid")
+            elif isinstance(cookies, list):
+                for cookie in cookies:
+                    if isinstance(cookie, dict) and cookie.get("name") == "sessionid":
+                        session_id = cookie.get("value")
+                        break
+            
+            if not session_id:
+                # Bazen doğrudan ana JSON dizininde authorization data string olarak durabilir
+                logger.warning(f"Session ID formatı beklenenden farklı: {username}")
+                        
+            device_info = data.get("device_settings", {})
+            user_agent = data.get("user_agent", "")
+            
+            return {
+                "username": username,
+                "session_id": session_id,
+                "proxy": state.proxy if state else None,
+                "device": {
+                    "manufacturer": device_info.get("manufacturer"),
+                    "model": device_info.get("model"),
+                    "android_version": device_info.get("android_version"),
+                    "app_version": device_info.get("app_version"),
+                    "user_agent": user_agent
+                },
+                "last_login": state.last_login.isoformat() if state and state.last_login else None
+            }
+        except Exception as e:
+            logger.error(f"Session info alinamadi {username}: {e}")
+            return None
