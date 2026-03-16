@@ -404,20 +404,31 @@ class AccountManager:
             with open(self.session_manager.session_path(username), "r") as f:
                 data = json.load(f)
             
-            # Extract sessionid from cookies
+            # Instagrapi can dump settings in multiple formats depending on its version
             session_id = None
-            cookies = data.get("authorization_data", {}).get("cookies", {})
-            if isinstance(cookies, dict):
-                session_id = cookies.get("sessionid")
-            elif isinstance(cookies, list):
-                for cookie in cookies:
+            
+            # 1. Ana dizideki 'cookies' altinda aranir (dict veya list)
+            cookies_data = data.get("cookies", {})
+            if isinstance(cookies_data, dict):
+                session_id = cookies_data.get("sessionid")
+            elif isinstance(cookies_data, list):
+                for cookie in cookies_data:
                     if isinstance(cookie, dict) and cookie.get("name") == "sessionid":
                         session_id = cookie.get("value")
                         break
             
+            # 2. Hala bulunamadiysa, 'authorization_data' icinde direkt bir key olarak aranir
             if not session_id:
-                # Bazen doğrudan ana JSON dizininde authorization data string olarak durabilir
-                logger.warning(f"Session ID formatı beklenenden farklı: {username}")
+                auth_data = data.get("authorization_data", {})
+                if isinstance(auth_data, dict):
+                    session_id = auth_data.get("sessionid")
+            
+            # 3. Yakin zamanda cikan surumlerde 'sessionid' isminde ayrica tutuluyor olabilir
+            if not session_id:
+                session_id = data.get("sessionid")
+            
+            if not session_id:
+                logger.warning(f"Session ID formati beklenenden farkli veya yok: {username}")
                         
             device_info = data.get("device_settings", {})
             user_agent = data.get("user_agent", "")
