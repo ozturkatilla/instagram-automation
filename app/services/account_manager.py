@@ -357,6 +357,20 @@ class AccountManager:
     def list_accounts(self) -> list:
         return [self.get_status(u) for u in self.accounts]
 
+    async def logout(self, username: str) -> dict:
+        """[YENİ] Hesabı RAM'den çıkarır ve session dosyasını siler."""
+        state = self.accounts.get(username)
+        if not state:
+            return {"success": False, "error": "Hesap bulunamadi"}
+        try:
+            self.session_manager.delete_session(username)
+            del self.accounts[username]
+            logger.info(f"Hesap cikis yapti: {username}")
+            return {"success": True}
+        except Exception as e:
+            logger.error(f"Logout basarisiz {username}: {e}")
+            return {"success": False, "error": str(e)}
+
     async def rename_account(self, old_username: str, new_username: str) -> dict:
         state = self.accounts.get(old_username)
         if not state:
